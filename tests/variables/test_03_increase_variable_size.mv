@@ -1,5 +1,5 @@
 // Test decreasing a variable's size
 
-CRA x[10]: INT = 1
+CRA x[]: INT = 1
 
 SIZE_DEC x, 5 // Decrease the size by 5 
