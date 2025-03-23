@@ -1,0 +1,5 @@
+// Test increasing a variable's size
+
+CRA x[10]: INT = 1
+
+SIZE_INC x, 5 // Increase the size by 5
