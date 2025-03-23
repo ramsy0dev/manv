@@ -1,0 +1,49 @@
+// References:
+    -> A list of constants in math: https://en.wikipedia.org/wiki/List_of_mathematical_constants
+
+
+// Operation
+MUL         // Multiply
+ADD         // Addition
+DIV         // Divide
+SUB         // Subtraction
+
+// Operations can also be made using the following syntax
+// the syntax (x-x) gets replaced by the result of the 
+// operation. It useful when increasing or decreasing
+// a varaible size based on an operation.
+(a*b)        // Multiply
+(a+b)        // Addition
+(a/b)        // Divide
+(a-b)        // Subtraction
+
+// Data types
+INT         // Integer type
+FLOAT       // Float type
+STR         // String sequence
+VEC         // A vector
+
+// Manage variables
+CRA             // Create a variable
+SIZE_INC        // Increase a variable's size
+SIZE_DEC        // Decrease a variable's size
+EMT             // Empty a variable (Set its value to 0x00)
+DEL             // Delete a variable from memory.
+
+PRINT       // Print a string sequal or a variable to the stdout
+
+
+// Global varaibles
+PI                 // Pi
+
+// ------------------------------------------------------------------------------- //
+//                                    Example                                      //
+
+CRA x[size]: INT; // Create a variable called x that is of type int
+
+
+MOV 10, x        // set x to equal 10
+MULT x, 5           // multiply x by 5, the results is stored in x, so now x = 10*5
+PRINT x             // print out the value of x
+
+// ------------------------------------------------------------------------------- //
