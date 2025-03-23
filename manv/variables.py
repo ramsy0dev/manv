@@ -82,44 +82,6 @@ class Variable:
     def __repr__(self):
         return f"<Variable: name={self.name!r}, size={self.size!r}, type={self.type!r}, value={self.value!r}>"
     
-    def increase_size(self, n: int) -> None:
-        """
-        Increase the size of the variable by 'n'.
-        
-        Args:
-            n (int): n controlls how much will be increased to
-            the size of the variable, if n is negative, nothing 
-            will happen.
-        
-        Returns:
-            None.
-        """
-        # Ignore n if its negative
-        if n < 0:
-            return
-        
-        self.size += n
-    
-    def decrease_size(self, n: int) -> None:
-        """
-        Decrease the size of the variable by 'n'.
-        
-        Args:
-            n (int): n controlls how much will be decreased from
-            the size of the variable, if n is negative, nothing 
-            will happen.
-            
-        Returns:
-            None.
-        """
-        if n > self.size:
-            raise NSizeToDecreaseIsLarge(f"The provided size to decrease '{n}' is larger then the original size.")
-        
-        # Ignore n if its negative
-        if n < 0:
-            return
-        
-        self.size -= n
 
 class VariableDict:
     """
@@ -205,4 +167,3 @@ def convert_to_variable_type(variable_value: str, variable_type: str) -> str|int
         raise InvalidVariableType
 
     return variable_value
-    
