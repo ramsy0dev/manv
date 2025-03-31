@@ -9,5 +9,4 @@ CONST SILVER_RATIO[]: FLOAT = 2.41421356237309504880;  // sqrt(2) + 1
 // --------------------------------------- //
 //           Functions declarations        //
 // --------------------------------------- //
-fn sqrt(x: INT) -> INT;
-
+fn sqrt(x: int) -> int;
