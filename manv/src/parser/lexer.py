@@ -36,7 +36,11 @@ STR_TYPE         = iota.new()
 CHAR_TYPE        = iota.new()
 BOOL_TRUE_TYPE   = iota.new()
 BOOL_FALSE_TYPE  = iota.new()
-VECTOR_TYPE      = iota.new()
+
+# Costum types
+type KEYWORD = int # Represents a language keyword.
+type WORD = str # Reperesents any kind a instruction that doesn't use any of the language's keyword.
+type IDENTIFIER = str # Name of a variable, constants, function, structure...
 
 # Literals
 SIZE_LITERAL     = iota.new() # Size to allocat for any type of data.
@@ -123,7 +127,6 @@ BUILTIN_TYPES: dict[int, str] = {
     FLOAT_TYPE: "FLOAT",
     STR_TYPE: "STR",
     CHAR_TYPE: "CHAR",
-    VECTOR_TYPE: "VECTOR"
 }
 
 # Literals binded to their string respresentation
@@ -192,10 +195,7 @@ SYMBOLS: dict[int, str] = {
     DOLLAR_SYMBOL: "$"
 }
 
-# Costum types
-type KEYWORD = int # Represents a language keyword.
-type WORD = str # Reperesents any kind a instruction that doesn't use any of the language's keyword.
-type IDENTIFIER = str # Name of a variable, constants, function, structure...
+
 
 class Tokens:
     """
@@ -334,11 +334,20 @@ class Lexer:
                     exit(1)
 
                 # Check if the initial size is bigger then the size of the constant's value
- 
+                 
                 constant_type = split_line_content[2]
                 constant_value = split_line_content[4][:-1] # Skip index [3], contains '='
                 end_of_line = split_line_content[4][-1]
-                
+
+                # Check if the constant_value's type correspondes with the constant_type
+                if not self.check_value_type(constant_type, constant_value):
+                    print(
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant's value's type doesn't match the declared type.\n" +
+                        (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                        f"\t-> {line.line_number} | {line.content}"
+                    )
+                    exit(1)
+
                 # Register tokens
                 token["tokens"].append({IDENTIFIER: constant_identifier})
                 token["tokens"].append({SIZE_LITERAL: constant_size})
@@ -426,6 +435,49 @@ class Lexer:
 
             
         return tokens
+    
+    def check_value_type(self, _type: str, value: str) -> bool:
+        """
+        Check if the value of a constant/variable correspond to the type.
+        """
+        _type = self.get_type_from_source(type)
+        print(_type) 
+
+        if _type == INT_TYPE:
+            try:
+                int(value)
+                return True
+            except:
+             return False
+        elif _type == FLOAT_TYPE:
+            try:
+                float(value)
+                return True
+            except:
+                return False
+        elif _type == STR_TYPE:
+            try:
+                str(value)
+                return True
+            except:
+                return False
+        elif _type == CHAR_TYPE:
+            try:
+                return len(str(value)) == 1
+            except:
+                return False
+        else:
+            return None
+
+
+    def get_type_from_source(self, _type: str) -> int:
+        """
+        Get type from the declared source code.
+        """
+        for i in BUILTIN_TYPES:
+            if BUILTIN_TYPES[i] == _type:
+                return i
+
 
     def remove_comments_from_line(self, data: str) -> str:
         """
