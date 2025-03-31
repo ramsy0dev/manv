@@ -1,4 +1,6 @@
 
+import sys
+
 from rich import print
 from typing import Generator
 
@@ -195,8 +197,6 @@ SYMBOLS: dict[int, str] = {
     DOLLAR_SYMBOL: "$"
 }
 
-
-
 class Tokens:
     """
     Class for representing the tokens generated
@@ -208,7 +208,6 @@ class Tokens:
 
     def __init__(self, file_path: str | None = None) -> None:
         self.file_path = file_path
-
 
 class Lexer:
     """
@@ -307,9 +306,7 @@ class Lexer:
                     except Exception as e:
                         continue
                 
-                constant_size = split_line_content[1].split("[")[1][:-2] 
-
-                # Check if the size is empty
+                constant_size = split_line_content[1].split("[")[1][:-2]
                 
                 # Check if the size contains illegal symbols
                 for symbol in SYMBOLS:
@@ -323,18 +320,31 @@ class Lexer:
                             f"\t-> {line.line_number} | {line.content}"
                         )
                         exit(1)
-
-                # check if the size is negative
-                if constant_size.startswith("-"):
+                
+                # Check if the size contains any characters and not integers
+                if self.contains_characters(data=constant_size, ignore_chars=["-"]):
                     print(
-                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant's size '{constant_size}' can't be negative.\n" +
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': size should contain integers and not characters.\n" +
                         (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
                         f"\t-> {line.line_number} | {line.content}"
                     )
                     exit(1)
+                else:
+                    if len(constant_size) == 0:
+                        constant_size = None
+                    else:
+                        constant_size = int(constant_size)
 
-                # Check if the initial size is bigger then the size of the constant's value
-                 
+                # check if the size is negative
+                if constant_size is not None:
+                    if constant_size < 0:
+                        print(
+                            f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant's size '{constant_size}' can't be negative.\n" +
+                            (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                            f"\t-> {line.line_number} | {line.content}"
+                        )
+                        exit(1)
+                    
                 constant_type = split_line_content[2]
                 constant_value = split_line_content[4][:-1] # Skip index [3], contains '='
                 end_of_line = split_line_content[4][-1]
@@ -348,6 +358,26 @@ class Lexer:
                     )
                     exit(1)
 
+                constant_value = self.convert_value_type(constant_value, _type=constant_type)
+
+                # Check if the size is empty, if true then we auto set it
+                if constant_size is None:
+                    if constant_type in [STR_TYPE, CHAR_TYPE]:
+                        constant_size = len(constant_value.encode("utf-8"))
+                    else:
+                        constant_size = self.get_size_of_obj(obj=constant_value)
+                else:
+                    constant_size = int(constant_size)
+                
+                # Check if the initial size is bigger then the size of the constant's value
+                if constant_size < sys.getsizeof(constant_value):
+                    print(
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Not enough size '{constant_size}' for value '{constant_value}'.\n" +
+                        (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                        f"\t-> {line.line_number} | {line.content}"
+                    )
+                    exit(1)
+                
                 # Register tokens
                 token["tokens"].append({IDENTIFIER: constant_identifier})
                 token["tokens"].append({SIZE_LITERAL: constant_size})
@@ -432,7 +462,6 @@ class Lexer:
             tokens.tokens.append(token)
 
             last_line = line
-
             
         return tokens
     
@@ -440,9 +469,8 @@ class Lexer:
         """
         Check if the value of a constant/variable correspond to the type.
         """
-        _type = self.get_type_from_source(type)
-        print(_type) 
-
+        _type = self.get_type_from_source(_type)
+        
         if _type == INT_TYPE:
             try:
                 int(value)
@@ -469,6 +497,53 @@ class Lexer:
         else:
             return None
 
+    def get_size_of_obj(self, obj, seen=None) -> int:
+        """
+        Recursively find the true size of an object including its references
+        """
+        if seen is None:
+            seen = set()
+
+        obj_id = id(obj)
+        if obj_id in seen:
+            return 0  # Avoid infinite recursion for circular references
+
+        seen.add(obj_id)
+        size = sys.getsizeof(obj)
+
+        if isinstance(obj, dict):
+            size += sum(deep_getsizeof(k, seen) + deep_getsizeof(v, seen) for k, v in obj.items())
+        elif isinstance(obj, (list, tuple, set, frozenset)):
+            size += sum(deep_getsizeof(i, seen) for i in obj)
+
+        return size
+    
+    def contains_characters(self, data: str, ignore_chars: list[str] | None = list()) -> bool:
+        """
+        Check if a sequence of data contains integers or not.
+        """
+        for char in data:
+            try:
+                if char in ignore_chars:
+                    continue
+                int(char)
+            except Exception as e:
+                return True
+    
+    def convert_value_type(self, value: str, _type: int) -> int | str | float:
+        """
+        Convert a given value into its type.
+        """
+        _type = self.get_type_from_source(_type)
+
+        if _type == INT_TYPE:
+            return int(value)
+        elif _type == FLOAT_TYPE:
+            return float(value)
+        elif _type == STR_TYPE:
+            str(value)
+        elif _type == CHAR_TYPE:
+            str(value)
 
     def get_type_from_source(self, _type: str) -> int:
         """
