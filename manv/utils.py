@@ -39,8 +39,10 @@ PL_LINUX   = 0x02
 def get_platform() -> str: ...
 def create_path(path: str) -> str: ...
 
+class iota: ...
+
 # Implementations
-def get_platform() -> str:
+def get_platform() -> int:
     """
     Returns the platform type
     """
@@ -83,3 +85,15 @@ def create_path(path: str) -> str:
         last_dir += slash + dirs[i]
     
     return last_dir
+
+class iota:
+    """
+    Simple implementation of iota.
+    """
+    current_n: int = 0
+    
+    def new(self) -> int:
+        self.current_n += 1
+
+        return self.current_n
+
