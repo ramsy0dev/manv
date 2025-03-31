@@ -28,8 +28,8 @@ __all__ = [
 import os
 import sys
 
+from rich import print
 from pathlib import Path
-from loguru import logger
 
 # Constants
 PL_WINDOWS = 0x01
@@ -59,7 +59,7 @@ def create_path(path: str) -> str:
     
     root_dir = os.getcwd()
 
-    logger.debug(f"Current working directory: {root_dir}")
+    print(f"[bold blue][DEBUG][reset]: Current working directory '{root_dir}'")
 
     last_dir = root_dir
     
@@ -71,7 +71,7 @@ def create_path(path: str) -> str:
         
         directory = last_dir + slash + dirs[i]
         
-        logger.debug(f"Processing directory: `{directory}`")
+        print(f"[bold blue][DEBUG][reset]Processing directory '{directory}'")
 
         directory = Path(directory)
 

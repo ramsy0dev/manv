@@ -24,7 +24,7 @@ import sys
 import typer
 import pathlib
 
-from loguru import logger
+from rich import print
 
 # Parser
 from manv.src.parser.parser import Parser
@@ -54,7 +54,7 @@ def compile(
     """
     # Check for file existance
     if not pathlib.Path(file_path).exists():
-        logger.error(f"The provided file path '{file_path}' doesn't exists.")
+        print(f"[bold red][ERROR][reset]: The provided file path '{file_path}' doesn't exists.")
         sys.exit(1)
     
     file = FileHandler(file_path)
@@ -82,7 +82,7 @@ def build_lexer(
     """
     # Check for file existance
     if not pathlib.Path(file_path).exists():
-        logger.error(f"The provided file path '{file_path}' doesn't exists.")
+        print(f"[bold red][ERROR][reset]: The provided file path '{file_path}' doesn't exists.")
         sys.exit(1)
     
     file = FileHandler(file_path)
@@ -93,19 +93,20 @@ def build_lexer(
     lexer = Lexer()
 
     program_tokens = lexer.generate_tokens(
-        data=file_content    
+        data=file_content,
+        file_path=file_path
     )
 
-    logger.info(f"File source code '{file_path}'")
+    print(f"[bold green][INFO][reset]: Generating tokens for file [cyan]'{file_path}'[reset]")
     for token in program_tokens.tokens:
-        logger.info(f"line '{token['line_n']}': \n\t{'\n\t'.join([str(i) for i in token['tokens']])}")
-
-
+        print(
+            f"[bold green][INFO][reset]: line '{token['line_n']}': \n\t{'\n\t'.join([str(i) for i in token['tokens']])}"
+        )
 
 def run():
     # Check if platform is not UNIX
     if not PLATFORM == PL_LINUX:
-        logger.error("Platform error, only UNIX platforms are supported.")
+        print("[bold red][ERROR][reset]: Platform error, only UNIX platforms are supported.")
         sys.exit(1)
 
     cli()
