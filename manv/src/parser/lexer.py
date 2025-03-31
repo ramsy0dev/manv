@@ -1,8 +1,6 @@
-from enum import auto 
 
-from loguru import logger
+from rich import print
 from typing import Generator
-
 
 from manv.models.line_model import LineModel
 
@@ -217,7 +215,7 @@ class Lexer:
     Lexer for manv language.
     """
     def __init__(self) -> None:
-        pass
+        self.global_identifiers = list() # Identifiers for variables, constants, functions that are globally available.
 
     def generate_tokens(self, data: Generator, file_path: str | None = None) -> Tokens:
         """
@@ -226,33 +224,122 @@ class Lexer:
         tokens = Tokens(
             file_path=file_path
         )
+        
+        last_line: LineModel | None = None
 
         for i, line in enumerate(data):
             tokens.lines_count += 1
             
-            line = self.remove_comments_from_line(data=line)
+            line = self.remove_comments_from_line(data=line.strip())
             line = LineModel(content=line, line_number=i)
-            split_line_content = line.content.split(" ")
+            split_line_content = [
+                i  for i in line.content.split(" ") if i != ""
+            ]
 
-            logger.info(f"Current line: {line}")
+            print(
+                f"[bold blue][DEBUG][reset]: Current line.\n"
+                f"\t   {line.line_number} | {line.content}\n"
+
+                f"[bold blue][DEBUG][reset]: Split current line.\n"
+                f"\t   {split_line_content=}"
+            ) 
             
             token: dict = {
                 "line_n": line.line_number,
                 "tokens": list()
             }
-                
+            
+            # Emtpy line
+            if len(split_line_content) == 0:
+                continue
+
             # Keyword: CONST_KEYWORD 
             if split_line_content[0] == KEYWORDS[CONST_KEYWORD]:    
                 token["tokens"].append({KEYWORD : KEYWORDS[CONST_KEYWORD]})
 
                 # -- Syntax variations:
-                #   >>> CONST x[n]: INT  = y 
+                #   >>> CONST x[n]: INT = y; 
                 #             ^ ^   ^^^ ^ ^  
-                constant_identifier = split_line_content[1].split("[")[0]
-                constant_size = split_line_content[1].split("[")[1][:-2] 
-                constant_type = split_line_content[2]
-                constant_value = split_line_content[4] # Skip index [3], contains '='
 
+                # Check if the syntax is correct
+                if len(split_line_content) > 5 or len(split_line_content) < 5:
+                    print(
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Invalid syntax.\n" +
+                        (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                        f"\t-> {line.line_number} | {line.content}"
+                    )
+                    exit(1)
+
+                constant_identifier = split_line_content[1].split("[")[0]
+                
+                # Check if the identifier is unique
+                if constant_identifier in self.global_identifiers:
+                    print(
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant identifier '{constant_identifier}' is already declared.\n" +
+                        (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                        f"\t-> {line.line_number} | {line.content}"
+                    )
+                    exit(1)
+
+                # Check if the identifier contains illegal symbols
+                for symbol in SYMBOLS:
+                    if SYMBOLS[symbol] in ["_"]:
+                        continue
+                    
+                    if SYMBOLS[symbol] in constant_identifier:
+                        print(
+                            f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Illegal symbol '{SYMBOLS[symbol]}' found in constant identifier.\n" +
+                            (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                            f"\t-> {line.line_number} | {line.content}"
+                        )
+                        exit(1)
+
+                # Check if the identifier contains integers and not sequence of chars
+                for char in constant_identifier:
+                    try:
+                        char = int(char)
+                        print(
+                            f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant identifier '{constant_identifier}' can't contain integers, only strings.\n" +
+                            (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                            f"\t-> {line.line_number} | {line.content}"
+                        )
+                        exit(1)
+                    except Exception as e:
+                        continue
+                
+                constant_size = split_line_content[1].split("[")[1][:-2] 
+
+                # Check if the size is empty
+                
+                # Check if the size contains illegal symbols
+                for symbol in SYMBOLS:
+                    if SYMBOLS[symbol] in ["-"]:
+                        continue
+
+                    if SYMBOLS[symbol] in constant_size:
+                        print(
+                            f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Illegal symbol '{SYMBOLS[symbol]}' found in constant's size.\n" +
+                            (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                            f"\t-> {line.line_number} | {line.content}"
+                        )
+                        exit(1)
+
+                # check if the size is negative
+                if constant_size.startswith("-"):
+                    print(
+                        f"[bold red][ERROR][reset] [cyan]File<{file_path}>[reset] in line '{line.line_number}': Constant's size '{constant_size}' can't be negative.\n" +
+                        (f"\t   {last_line.line_number} | {last_line.content}\n" if last_line is not None else "") +
+                        f"\t-> {line.line_number} | {line.content}"
+                    )
+                    exit(1)
+
+                # Check if the initial size is bigger then the size of the constant's value
+ 
+                constant_type = split_line_content[2]
+                constant_value = split_line_content[4][:-1] # Skip index [3], contains '='
+                end_of_line = split_line_content[4][-1]
+                
+                # Register tokens
                 token["tokens"].append({IDENTIFIER: constant_identifier})
                 token["tokens"].append({SIZE_LITERAL: constant_size})
                 token["tokens"].append({COLON_SYMBOL: SYMBOLS[COLON_SYMBOL]})
@@ -265,6 +352,9 @@ class Lexer:
                 token["tokens"].append({_key: constant_type})
                 token["tokens"].append({EQUALS_SYMBOL: SYMBOLS[EQUALS_SYMBOL]})
                 token["tokens"].append({NUMBER_LITERAL: constant_value})
+                token["tokens"].append({SEMICOLON_SYMBOL: end_of_line})
+                
+                self.global_identifiers.append(constant_identifier) # Saving the identifier
 
             # Keyword:  VAR_KEYWORD
             if split_line_content[0] == KEYWORDS[VAR_KEYWORD]:
@@ -331,6 +421,9 @@ class Lexer:
                 })
 
             tokens.tokens.append(token)
+
+            last_line = line
+
             
         return tokens
 
