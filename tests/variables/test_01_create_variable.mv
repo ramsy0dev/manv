@@ -1,5 +1,6 @@
 // Test creating two variables x, y both with size of 10
 // x is of type INT and y is of type FLOAT
 
-CRA x[]: INT = 1010 // Fixed size
-CRA y[]: FLOAT = 10   // Dynamic size
+CONST x[]: INT = 1010 // Fixed size
+CONST y[]: FLOAT = 10  // Dynamic size
+
