@@ -109,26 +109,26 @@ DOLLAR_SYMBOL                   =    iota.new()
 # Keywords binded to their string representation
 KEYWORDS: dict[int, str] = {
     # Operations keywords
-    MUL_KEYWORD: "MUL",
-    ADD_KEYWORD: "ADD",
-    DIV_KEYWORD: "DIV",
-    SUB_KEYWORD: "SUB",
+    MUL_KEYWORD: "mul",
+    ADD_KEYWORD: "add",
+    DIV_KEYWORD: "div",
+    SUB_KEYWORD: "sub",
 
     # Variables/Constants keywords
-    CONST_KEYWORD: "CONST",
-    VAR_KEYWORD: "VAR",
-    SIZE_INC_KEYWORD: "SIZE_INC",
-    SIZE_DEC_KEYWORD: "SIZE_DEC",
-    EMT_KEYWORD: "EMT",
-    DEL_KEYWORD: "DEL"
+    CONST_KEYWORD: "const",
+    VAR_KEYWORD: "var",
+    SIZE_INC_KEYWORD: "size_inc",
+    SIZE_DEC_KEYWORD: "size_inc",
+    EMT_KEYWORD: "emt",
+    DEL_KEYWORD: "del"
 }
 
 # Types binded to their string representation
 BUILTIN_TYPES: dict[int, str] = {
-    INT_TYPE: "INT",
-    FLOAT_TYPE: "FLOAT",
-    STR_TYPE: "STR",
-    CHAR_TYPE: "CHAR",
+    INT_TYPE: "int",
+    FLOAT_TYPE: "float",
+    STR_TYPE: "str",
+    CHAR_TYPE: "char",
 }
 
 # Literals binded to their string respresentation
@@ -257,7 +257,7 @@ class Lexer:
                 token["tokens"].append({KEYWORD : KEYWORDS[CONST_KEYWORD]})
 
                 # -- Syntax variations:
-                #   >>> CONST x[n]: INT = y; 
+                #   >>> const x[n]: INT = y; 
                 #             ^ ^   ^^^ ^ ^  
 
                 # Check if the syntax is correct

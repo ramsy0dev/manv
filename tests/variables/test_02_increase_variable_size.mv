@@ -1,5 +1,5 @@
 // Test increasing a variable's size
 
-CRA x[]: INT = 1
+var x[10]: int;
 
-SIZE_INC x, 5 // Increase the size by 5
+size_inc x, 5; // Increase the size by 5

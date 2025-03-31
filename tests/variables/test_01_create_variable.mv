@@ -1,6 +1,5 @@
 // Test creating two variables x, y both with size of 10
 // x is of type INT and y is of type FLOAT
 
-CONST x[]: INT = 1010 // Fixed size
-CONST y[]: FLOAT = 10  // Dynamic size
-
+const x[]: int = 1010;
+const y[]: float = 10;
