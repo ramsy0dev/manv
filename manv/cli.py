@@ -27,21 +27,32 @@ import pathlib
 from loguru import logger
 
 # Parser
-from manv.parser import Parser
+from manv.src.parser.parser import Parser
+
+# Lexer
+from manv.src.parser.lexer import Lexer
 
 # File handler
 from manv.file_handler import FileHandler
 
+# Platform type
+from manv.common import (
+    PLATFORM,
+    PL_LINUX
+)
+
+# Init cli
 cli = typer.Typer()
 
 @cli.command()
-def run(
+def compile(
     file_path: str = typer.Option(None, "--file-path", help="The path to the manv script file."),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use.")
     ) -> None:
     """
-    Run a manv file source code.
+    Compile a manv program source.
     """
+    # Check for file existance
     if not pathlib.Path(file_path).exists():
         logger.error(f"The provided file path '{file_path}' doesn't exists.")
         sys.exit(1)
@@ -51,10 +62,50 @@ def run(
         threads=threads
     )
     
-    parser = Parser()
-    parser.parse(
+    lexer = Lexer()
+    program_tokens = lexer.generate_tokens(
         data=file_content
     )
+    
+    parser = Parser()
+    parser.parse(
+        tokens=program_tokens
+    )
+
+@cli.command()
+def build_lexer(
+    file_path: str = typer.Option(None, "--file-path", help="The path to the manv script file."),
+    threads: int = typer.Option(3, "--threads", help="The number of threads to use.")
+    ) -> None:
+    """
+    Build the lexer tree.
+    """
+    # Check for file existance
+    if not pathlib.Path(file_path).exists():
+        logger.error(f"The provided file path '{file_path}' doesn't exists.")
+        sys.exit(1)
+    
+    file = FileHandler(file_path)
+    file_content = file.read(
+        threads=threads
+    )
+
+    lexer = Lexer()
+
+    program_tokens = lexer.generate_tokens(
+        data=file_content    
+    )
+
+    logger.info(f"File source code '{file_path}'")
+    for token in program_tokens.tokens:
+        logger.info(f"line '{token['line_n']}': \n\t{'\n\t'.join([str(i) for i in token['tokens']])}")
+
+
 
 def run():
+    # Check if platform is not UNIX
+    if not PLATFORM == PL_LINUX:
+        logger.error("Platform error, only UNIX platforms are supported.")
+        sys.exit(1)
+
     cli()
