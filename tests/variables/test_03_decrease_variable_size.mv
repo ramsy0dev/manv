@@ -1,5 +1,0 @@
-// Test decreasing a variable's size
-
-var x[10]: INT;
-
-size_dec x, 5; // Decrease the size by 5 

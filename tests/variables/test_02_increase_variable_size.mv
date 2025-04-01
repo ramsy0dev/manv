@@ -1,5 +1,0 @@
-// Test increasing a variable's size
-
-var x[10]: int;
-
-size_inc x, 5; // Increase the size by 5

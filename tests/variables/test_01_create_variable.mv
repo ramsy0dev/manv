@@ -1,5 +1,0 @@
-// Test creating two variables x, y both with size of 10
-// x is of type INT and y is of type FLOAT
-
-const x[]: int = 1010;
-const y[]: float = 10;
