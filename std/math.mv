@@ -1,9 +1,9 @@
-// Constants
+// constants
 
-CONST Pi[]  : FLOAT = 3.14159265358979323846;          // Pi: Ratio of a circle's circumference to its diameter. 
-CONST Tau[] : FLOAT = 6.28318530717958647692;          // Tau: Ratio of a circle's circumference to its radius. Equal to 2Pi
-CONST PHI[] : FLOAT = 1.61803398874989484820;          // Phi Golden Ratio: (1 + sqrt(5))/2
-CONST SILVER_RATIO[]: FLOAT = 2.41421356237309504880;  // sqrt(2) + 1
+const Pi[]  : float = 3.14159265358979323846;          // Pi: Ratio of a circle's circumference to its diameter. 
+const Tau[] : float = 6.28318530717958647692;          // Tau: Ratio of a circle's circumference to its radius. Equal to 2Pi
+const PHI[] : float = 1.61803398874989484820;          // Phi Golden Ratio: (1 + sqrt(5))/2
+const SILVER_RATIO[]: float = 2.41421356237309504880;  // sqrt(2) + 1
 
 
 // --------------------------------------- //
