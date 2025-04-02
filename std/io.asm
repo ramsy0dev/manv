@@ -49,11 +49,11 @@ print:
 
     ; Validate the text length
     cmp rsi, 0
-    je .invalid_text_error
+    je .invalid_text_len_error
 
     ; Check if the text is a valid address
     test rdi, rdi
-    jle .invalid_text_len_error
+    jz .invalid_text_error
 
     mov rax, 1      ; sys_write
     mov rdx, rsi    ; message length
@@ -61,13 +61,15 @@ print:
     mov rdi, 1      ; STDOUT
     syscall
 
+    ret             ; returning so we don't fall into the exceptions
+
 ; ---------------------------------------------- ;
 ;                   Error handling               ;
 ; ---------------------------------------------- ;
 .invalid_text_error:
     ; Write to STDOUT the error message
     mov rax, 1                          ; sys_write
-    mov rdi, 1                          ; STDOUT
+    mov rdi, 2                          ; STDERR
     mov rsi, invalid_text_error_msg     ; Error message
     mov rdx, 18                         ; Error message length
     syscall
@@ -80,12 +82,12 @@ print:
 .invalid_text_len_error:
     ; Write to STDOUT the error message
     mov rax, 1                              ; sys_write
-    mov rdi, 1                              ; STDOUT
+    mov rdi, 2                              ; STDERR
     mov rsi, invalid_text_len_error_msg     ; Error message
-    mov rdx, 20                             ; Error message length
+    mov rdx, 21                             ; Error message length
     syscall
 
     ; Exit
-    mov rax, 60                             ; sts_exit
+    mov rax, 60                             ; sys_exit
     mov rdi, invalid_text_len_error_code    ; Error code
     syscall
