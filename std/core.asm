@@ -26,8 +26,22 @@
 section .data
 
 section .text
-global _start
+global exit
 
+exit:
+    ; -- function:
+    ;   -> name: exit
+    ;   -> args:
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;           err_code |   rdi
+    ;
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn exit(err_code: int);
+    
+    mov rax, 60         ; sys_exit
+    mov rdi, rdi        ; error code
+    syscall
 
-_start:
-    nop
+    ret
