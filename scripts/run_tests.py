@@ -149,24 +149,28 @@ def run_test_file(test: Test) -> None:
     )
 
     # Check the stderr
-    for i, x in zip(test.stderr, out.stderr.decode().split("\n")):
-        if i != x:
-            print("[bold red]FAILD[reset]")
-            print(
-                f"[bold green][INFO][reset]: Expected stderr from test '{test.test_file_path}'\n"
-                f"\t STDERR = {out.stderr.decode() if out.stderr.decode() != '' else None}"
-            )
-            sys.exit(1)
-    
+    stderr_output = out.stderr.decode().strip()
+    expected_stderr = "\n".join(test.stderr).strip()
+
+    if stderr_output != expected_stderr:
+        print("[bold red]FAILD[reset]")
+        print(
+            f"[bold green][INFO][reset]: Expected stderr from test '{test.test_file_path}'\n"
+            f"\t STDERR = {expected_stderr}"
+        )
+        sys.exit(1)
+
     # Check the stdout
-    for i, x in zip(test.stdout, out.stdout.decode().split("\n")):
-        if i != x:
-            print("[bold red]FAILD[reset]")
-            print(
-                f"[bold green][INFO][reset]: Expected stdout from test '{test.test_file_path}'\n"
-                f"\t STDOUT = {out.stdout.decode() if out.stdout.decode() != '' else None}"
-            )
-            sys.exit(1)
+    stdout_output = out.stdout.decode().strip()
+    expected_stdout = "\n".join(test.stdout).strip()
+
+    if stdout_output != expected_stdout:
+        print("[bold red]FAILD[reset]")
+        print(
+            f"[bold green][INFO][reset]: Expected stdout from test '{test.test_file_path}'\n"
+            f"\t STDOUT = {out.stdout.decode() if out.stdout.decode() != '' else None}"
+        )
+        sys.exit(1)
     
     print("[bold green]PASS[reset]")
 
