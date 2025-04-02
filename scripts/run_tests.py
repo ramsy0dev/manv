@@ -148,12 +148,27 @@ def run_test_file(test: Test) -> None:
       stderr=subprocess.PIPE
     )
 
-    if out.stderr:
-      print("[bold red]FAILD[reset]")
-    else:
-      print("[bold green]PASS[reset]")
-
-    print(f"[bold violet][STDOUT][reset]: Output of '{test.test_file_path}'\n\t{out.stdout.decode()}")
+    # Check the stderr
+    for i, x in zip(test.stderr, out.stderr.decode().split("\n")):
+        if i != x:
+            print("[bold red]FAILD[reset]")
+            print(
+                f"[bold green][INFO][reset]: Expected stderr from test '{test.test_file_path}'\n"
+                f"\t STDERR = {out.stderr.decode() if out.stderr.decode() != '' else None}"
+            )
+            sys.exit(1)
+    
+    # Check the stdout
+    for i, x in zip(test.stdout, out.stdout.decode().split("\n")):
+        if i != x:
+            print("[bold red]FAILD[reset]")
+            print(
+                f"[bold green][INFO][reset]: Expected stdout from test '{test.test_file_path}'\n"
+                f"\t STDOUT = {out.stdout.decode() if out.stdout.decode() != '' else None}"
+            )
+            sys.exit(1)
+    
+    print("[bold green]PASS[reset]")
 
 def run() -> None:
     # Generate test objects
