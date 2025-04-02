@@ -6,5 +6,8 @@ test_file_object_path="./tests/io/test_print.o"
 binary_file_path="./tests/io/test_print"
 lib_file_path="./std/io.asm"
 lib_object_path="./std/libs/io.o"
-stdout="Hello World!"
-stderr=""
+stdout=["Hello World!"]
+stderr=[
+    "Invalid text",
+    "Invalid text length"
+]
