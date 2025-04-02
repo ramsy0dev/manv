@@ -64,7 +64,7 @@ flush_stdout:
     ; -- manv declaration:
     ;   -> fn flush_stdout();
 
-    mov rax, 74                             ; SYS_fsync (Flush STDOUT)
+    mov rax, 74                             ; sys_fsync (Flush STDOUT)
     mov rdi, 1
     syscall
 
@@ -79,7 +79,7 @@ flush_stderr:
     ; -- manv declaration:
     ;   -> fn flush_stderr();
 
-    mov rax, 74                             ; SYS_fsync (Flush STDERR)
+    mov rax, 74                             ; sys_fsync (Flush STDERR)
     mov rdi, 2
     syscall
 
@@ -124,6 +124,11 @@ print:
     mov rdx, 18                         ; Error message length
     syscall
 
+    ; Exit
+    mov rax, 60                             ; sys_exit
+    mov rdi, invalid_text_error_code        ; error code
+    syscall
+
     ret
 
 .invalid_text_len_error:
@@ -132,6 +137,11 @@ print:
     mov rdi, 2                              ; STDERR
     mov rsi, invalid_text_len_error_msg     ; Error message
     mov rdx, 21                             ; Error message length
+    syscall
+
+    ; Exit
+    mov rax, 60                             ; sys_exit
+    mov rdi, invalid_text_len_error_code    ; error code
     syscall
 
     ret
