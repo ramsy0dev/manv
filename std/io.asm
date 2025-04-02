@@ -33,19 +33,68 @@ section .data
     invalid_text_len_error_msg  db "Invalid text length", 0xA  ; Error message for invalid text length (print function)
 
 section .text
-global print
+global print, flush_stderr, flush_stdout
 
 ; ---------------------------------------------- ;
 ;       Builtin functions implementations        ;
 ; ---------------------------------------------- ;
+
+flush:
+    ; -- function:
+    ;   -> name: flush
+    ;   -> args: 
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn flush();
+
+    call flush_stdout
+    call flush_stderr
+
+flush_stdout:
+    ; -- function:
+    ;   -> name: flush_stdout
+    ;   -> args:
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn flush_stdout();
+
+    mov rax, 74                             ; SYS_fsync (Flush STDOUT)
+    mov rdi, 1
+    syscall
+
+flush_stderr:
+    ; -- function:
+    ;   -> name: flush_stderr
+    ;   -> args:
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn flush_stderr();
+
+    mov rax, 74                             ; SYS_fsync (Flush STDERR)
+    mov rdi, 2
+    syscall
+
 print:
-    ; manv declaration:
-    ;   ``` manv
-    ;   fn print(text: str, len: int) -> NONE;
-    ;   ```
-    ; arguments registers:
-    ;   rdi -> text
-    ;   rsi -> len
+    ; -- function:
+    ;   -> name: print
+    ;   -> args:
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;             text   |   rdi
+    ;           text_len |   rsi
+    ;
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn print(text: str, text_len: int);
 
     ; Validate the text length
     cmp rsi, 0
@@ -63,6 +112,7 @@ print:
 
     ret             ; returning so we don't fall into the exceptions
 
+
 ; ---------------------------------------------- ;
 ;                   Error handling               ;
 ; ---------------------------------------------- ;
@@ -74,10 +124,7 @@ print:
     mov rdx, 18                         ; Error message length
     syscall
 
-    ; Exit
-    mov rax, 60                         ; sys_exit
-    mov rdi, invalid_text_error_code    ; Error code
-    syscall
+    ret
 
 .invalid_text_len_error:
     ; Write to STDOUT the error message
@@ -87,7 +134,4 @@ print:
     mov rdx, 21                             ; Error message length
     syscall
 
-    ; Exit
-    mov rax, 60                             ; sys_exit
-    mov rdi, invalid_text_len_error_code    ; Error code
-    syscall
+    ret
