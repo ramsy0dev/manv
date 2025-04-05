@@ -92,12 +92,13 @@ def build_lexer(
 
     lexer = Lexer()
 
+    print(f"[bold green][INFO][reset]: Generating tokens for file [cyan]'{file_path}'[reset]")
+
     program_tokens = lexer.generate_tokens(
         data=file_content,
         file_path=file_path
     )
 
-    print(f"[bold green][INFO][reset]: Generating tokens for file [cyan]'{file_path}'[reset]")
     for token in program_tokens.tokens:
         print(
             f"[bold green][INFO][reset]: line '{token['line_n']}': \n\t{'\n\t'.join([str(i) for i in token['tokens']])}"
