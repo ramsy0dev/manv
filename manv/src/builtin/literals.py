@@ -22,15 +22,47 @@
 
 __all__ = [
     "Literal",
+    "NumberLiteral",
+    "FloatLiteral",
+    "StringLiteral",
+    "CharLiteral",
     "TRUE",
     "FALSE",
-    "NULL"
+    "NULL",
+    "DynamicSize"
 ]
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+# AST base
+from manv.src.ast.base import ASTNode
+
+# Types
+from manv.src.builtin.types import *
 
 class Literal:
     pass
+
+@dataclass
+class NumberLiteral(ASTNode):
+    value: int
+    typ: Type = field(default_factory=IntType)
+
+@dataclass
+class FloatLiteral(ASTNode):
+    value: float
+    typ: Type = field(default_factory=FloatType)
+
+@dataclass
+class StringLiteral(ASTNode):
+    value: str
+    typ: Type = field(default_factory=StrType)
+
+@dataclass
+class CharLiteral(ASTNode):
+    value: str
+    typ: Type = field(default_factory=CharType)
+
 
 @dataclass
 class TRUE(Literal):
@@ -43,3 +75,11 @@ class FALSE(Literal):
 @dataclass
 class NULL(Literal):
     value: None = None
+
+@dataclass
+class DynamicSize(Literal):
+    bits: 10
+
+@dataclass
+class UninitializedVariable(Literal):
+    bits: 12
