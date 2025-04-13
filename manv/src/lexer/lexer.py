@@ -29,10 +29,22 @@ import sys
 from rich import print
 from typing import Generator
 
+# Models
 from manv.models.line_model import LineModel
 
 # Tokens
 from manv.src.parser.tokens import *
+
+class Token:
+    """
+    Class representing a single token
+    """
+    line: LineModel
+    tokens: dict
+
+    def __init__(self, line: LineModel, tokens: dict) -> None:
+        self.line = line
+        self.tokens = tokens
 
 class Tokens:
     """
@@ -41,7 +53,7 @@ class Tokens:
     """
     file_path: str | None = None
     lines_count: int  = 0
-    tokens: list[dict] = list()
+    tokens: list[Token] = list()
 
     def __init__(self, file_path: str | None = None) -> None:
         self.file_path = file_path
@@ -66,24 +78,39 @@ class Lexer:
         for i, line in enumerate(data):
             tokens.lines_count += 1
             
-            line = LineModel(content=line, line_number=i)
+            current_line = LineModel(
+                content=line,
+                line_number=i+1,
+                last_line=last_line
+            )
+
+            if last_line is not None:
+                last_line.next_line = current_line
+            
+
+            print(f"[bold blue][DEBUG][reset]: {current_line}")
             split_line_content = [
-                i  for i in line.content.split(" ") if i != ""
+                i  for i in current_line.content.split(" ") if i != ""
             ]
 
             print(
-                f"[bold blue][DEBUG][reset]: Current line '{line.line_number+1}'\n"
-                f"\t   {line.line_number+1!r} | {line.content!r}\n"
+                f"[bold blue][DEBUG][reset]: Current line '{current_line.line_number}'\n"
+                f"\t   {current_line.line_number!r} | {current_line.content!r}\n"
             ) 
             
-            token: dict = {
-                "line_n": line.line_number+1,
-                "source_code": line.content,
-                "tokens": list()
-            }
+            token = Token(
+                line=current_line,
+                tokens=list()
+            )
+
+            # token: dict = {
+            #     "line_n": current_line.line_number,
+            #     "source_code": current_line.content,
+            #     "tokens": list()
+            # }
             
             # Emtpy line
-            if len(line.content) == 0:
+            if len(current_line.content) == 0:
                 continue
             
             token_construct = ""
@@ -91,7 +118,7 @@ class Lexer:
             skip_indexes_list        = None
             skip_indexes_list_mirror = None # Mirror of skip_indexes_list
 
-            for i, char in enumerate(line.content):
+            for i, char in enumerate(current_line.content):
                 # Skip processed indexes
                 if skip_indexes_list is not None and len(skip_indexes_list) > 0:
                     skip_indexes_list_mirror = skip_indexes_list
@@ -101,25 +128,25 @@ class Lexer:
                             skip_indexes_list.pop(x)
 
                             last_char = char
-                            last_line = line
+                            last_line = current_line
 
                             continue
 
-                next_char = line.content[i+1] if i+1 < len(line.content) else None
+                next_char = current_line.content[i+1] if i+1 < len(current_line.content) else None
 
                 # Empty space
                 if char == ' ':
                     last_char = char
-                    last_line = line
+                    last_line = current_line
 
-                    # token["tokens"].append({LITERALS_SYNTAX_MAP[SPACE_LITERAL]: " "})
+                    # token.tokens.append({LITERALS_SYNTAX_MAP[SPACE_LITERAL]: " "})
 
                     continue
                 
                 # Comment line
                 if char == "/" and next_char == "/":
-                    token["tokens"].append({KEYWORDS_SYNTAX_MAP[COMMENT_KEYWORD]: KEYWORDS[COMMENT_KEYWORD]})
-                    token["tokens"].append({TOKENS[COMMENT_TOKEN]: line.content[i+2:]})
+                    token.tokens.append({KEYWORDS_SYNTAX_MAP[COMMENT_KEYWORD]: KEYWORDS[COMMENT_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[COMMENT_TOKEN]: current_line.content[i+2:]})
 
                     break
 
@@ -128,7 +155,7 @@ class Lexer:
                     if char != ";" and next_char == "\n":
                         print(f"{char = }, {next_char = }, {last_char = }")
                         print(
-                            f"[bold red][ERROR][reset]: Expected a semicolon at end of line '{line.line_number+1}'"
+                            f"[bold red][ERROR][reset]: Expected a semicolon at end of line '{token.line.line_number}'"
                         )
                         sys.exit(1)
                 
@@ -138,16 +165,16 @@ class Lexer:
                     if next_char == "\n":
                         is_eof = True
                     else:
-                        text = line.content[i+1:]
+                        text = current_line.content[i+1:]
                         for _, x in enumerate(text):
                             if x == "/" and text[_+1] == "/":
                                 is_eof = True
                 if is_eof:
                     print(
-                        f"[bold blue][DEBUG][reset]: Reached EOF of line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Reached EOF of line '{current_line.line_number}'."
                     )
                     
-                    token["tokens"].append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: SYMBOLS[SEMICOLON_SYMBOL]})
+                    token.tokens.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: SYMBOLS[SEMICOLON_SYMBOL]})
                     token_construct = ""
                     is_eof = False
                 
@@ -176,15 +203,15 @@ class Lexer:
 
                 if constant_identifier is not None or variable_identifier is not None:
                     log_msg = (f"[bold blue][DEBUG][reset]: Found ") + \
-                        (f"constant identifier '{constant_identifier[TOKENS[WORD_TOKEN]]}'" if constant_identifier is not None else f"variable identifier '{variable_identifier[TOKENS[WORD_TOKEN]]}'") + \
-                        (f"in line '{line.line_number+1}'.")
+                        (f"constant identifier '{constant_identifier[TOKENS_SYNTAX_MAP[WORD_TOKEN]]}'" if constant_identifier is not None else f"variable identifier '{variable_identifier[TOKENS_SYNTAX_MAP[WORD_TOKEN]]}'") + \
+                        (f"in line '{current_line.line_number}'.")
                     
                     print(log_msg)
                     
                     if constant_identifier is not None:
-                        token["tokens"].append(constant_identifier)
+                        token.tokens.append(constant_identifier)
                     else:
-                        token["tokens"].append(variable_identifier)
+                        token.tokens.append(variable_identifier)
                     
                     token_construct = ""
 
@@ -195,7 +222,7 @@ class Lexer:
                     current_char=char,
                     last_char=last_char,
                     next_char=next_char,
-                    line_content=line.content,
+                    line_content=current_line.content,
                     token=token
                 )
 
@@ -203,12 +230,12 @@ class Lexer:
                     size_n = size[LITERALS_SYNTAX_MAP[SIZE_LITERAL]] if LITERALS_SYNTAX_MAP[SIZE_LITERAL] in size else size[LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]]
                     is_dynamic = LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL] in size
 
-                    log_msg = f"[bold blue][DEBUG][reset]: Found size literal '{size_n}' in line '{line.line_number+1}'." \
-                        if not is_dynamic else f"[bold blue][DEBUG][reset]: Found dynamic size in line '{line.line_number+1}'." \
+                    log_msg = f"[bold blue][DEBUG][reset]: Found size literal '{size_n}' in line '{current_line.line_number}'." \
+                        if not is_dynamic else f"[bold blue][DEBUG][reset]: Found dynamic size in line '{current_line.line_number}'." \
                     
                     print(log_msg)
                     
-                    token["tokens"].append(size)
+                    token.tokens.append(size)
                     token_construct = ""
                 
                 # Constant/Variable type
@@ -218,14 +245,14 @@ class Lexer:
                     current_char=char,
                     last_char=last_char,
                     next_char=next_char,
-                    line_content=line.content,
+                    line_content=current_line.content,
                     token=token
                 )
 
                 if _type is not None:
-                    print(f"[bold blue][DEBUG][reset]: Found type literal '{_type[TOKENS[TYPE_TOKEN]]}' in line '{line.line_number}'.")
+                    print(f"[bold blue][DEBUG][reset]: Found type literal '{_type[TOKENS_SYNTAX_MAP[TYPE_TOKEN]]}' in line '{current_line.line_number}'.")
                     
-                    token["tokens"].append(_type)
+                    token.tokens.append(_type)
                     token_construct = ""
                 
                 value, skip_indexes_list = self.extract_constant_variable_value(
@@ -234,125 +261,125 @@ class Lexer:
                     current_char=char,
                     last_char=last_char,
                     next_char=next_char,
-                    line_content=line.content,
+                    line_content=current_line.content,
                     token=token
                 )
 
                 if value is not None:
                     log_msg = ""
-                    if TOKENS[VALUE_TOKEN] in value:
-                        log_msg = f"[bold blue][DEBUG][reset]: Found value '{value[TOKENS[VALUE_TOKEN]]}' in line '{line.line_number}'."
+                    if TOKENS_SYNTAX_MAP[VALUE_TOKEN] in value:
+                        log_msg = f"[bold blue][DEBUG][reset]: Found value '{value[TOKENS_SYNTAX_MAP[VALUE_TOKEN]]}' in line '{current_line.line_number}'."
                     else:
-                        log_msg = f"[bold blue][DEBUG][reset]: No value set in line '{line.line_number}'."
+                        log_msg = f"[bold blue][DEBUG][reset]: No value set in line '{current_line.line_number}'."
                     
                     print(log_msg)
 
-                    token["tokens"].append(value)
+                    token.tokens.append(value)
                     token_construct = ""
                 
             
                 # Keyword: CONST_KEYWORD
                 if token_construct == "const":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: VAR_KEYWORD
                 if token_construct == "var":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] :  KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] :  KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: MUL_KEYWORD
                 if token_construct == "mul":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: SIZE_INC_KEYWORD
                 if token_construct == "size_inc":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_INC_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_INC_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: SIZE_DEC_KEYWORD
                 if token_construct == "size_dec":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_DEC_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_DEC_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: EMT_KEYWORD
                 if token_construct == "emt":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[EMT_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[EMT_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: DEL_KEYWORD
                 if token_construct == "del":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DEL_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DEL_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: MUL_KEYWORD
                 if token_construct == "mul":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: ADD_KEYWORD
                 if token_construct == "add":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[ADD_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[ADD_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: DIV_KEYWORD
                 if token_construct == "div":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DIV_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DIV_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: SUB_KEYWORD
                 if token_construct == "sub":
                     print(
-                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{line.line_number+1}'."
+                        f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
                     )
 
-                    token["tokens"].append({TOKENS[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SUB_KEYWORD]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SUB_KEYWORD]})
                     token_construct = ""
 
             tokens.tokens.append(token)
 
-            last_line = line
+            last_line = current_line
             last_char = char
             
         return tokens
@@ -361,9 +388,9 @@ class Lexer:
         """
         Is the last token a constant keyword
         """
-        const_token = {TOKENS[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]}
+        const_token = {TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]}
 
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
 
         return const_token == last_token
 
@@ -371,9 +398,9 @@ class Lexer:
         """
         Is the last token a variable keyword
         """
-        var_token = {TOKENS[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]}
+        var_token = {TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]}
 
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
 
         return var_token == last_token
 
@@ -381,15 +408,15 @@ class Lexer:
         """
         Is the last token a word (identifier)
         """
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
         
-        return list(last_token.items())[0][0] == TOKENS[WORD_TOKEN]
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[WORD_TOKEN]
 
     def is_last_token_size(self, token: dict, index: int | None = -1) -> bool:
         """
         Is the last token a size or dynamic size.
         """
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
 
         return list(last_token.items())[0][0] in [LITERALS_SYNTAX_MAP[SIZE_LITERAL], LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]]
     
@@ -397,50 +424,50 @@ class Lexer:
         """
         Is the last token a type.
         """
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
 
-        return list(last_token.items())[0][0] == TOKENS[TYPE_TOKEN]
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[TYPE_TOKEN]
     
     def is_last_token_semicolon(self, token: dict, index: int | None = -1) -> bool:
         """
         Is the last token a semicolon (EOF)
         """
-        last_token = list(token.items())[-1][1][index]
+        last_token = token.tokens[index]
 
         return list(last_token.items())[0][0] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]
     
-    def extract_constant_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: dict) -> dict:
+    def extract_constant_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: Token) -> dict:
         """
         Extract the constant's identifier
         """
-        if len(list(token.items())[-1][1]) == 0:
+        if len(token.tokens) == 0:
             return None
 
         if self.is_last_token_const(token=token) and next_char in ["[", ":"]:
             return {
-                TOKENS[WORD_TOKEN]: token_construct,
+                TOKENS_SYNTAX_MAP[WORD_TOKEN]: token_construct,
             }
     
-    def extract_variable_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: dict) -> dict:
+    def extract_variable_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: Token) -> dict:
         """
         Extract variable's identifier.
         """
-        if len(list(token.items())[-1][1]) == 0:
+        if len(token.tokens) == 0:
             return None
         
         if self.is_last_token_var(token=token) and next_char in ["[", ":"]:
             return {
-                TOKENS[WORD_TOKEN]: token_construct,
+                TOKENS_SYNTAX_MAP[WORD_TOKEN]: token_construct,
             }
     
-    def extract_constant_variable_size(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: dict) -> tuple[dict, list[int]]:
+    def extract_constant_variable_size(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
         """
         Extract the constant/variable 's size.
         """
         size = ""
         skip_indexes_list = []
 
-        if len(list(token.items())[-1][1]) == 0:
+        if len(token.tokens) == 0:
             return None, None
         
         if self.is_last_token_word(token=token) and current_char == "[":
@@ -469,14 +496,14 @@ class Lexer:
         
         return None, skip_indexes_list
 
-    def extract_constant_variable_type(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: dict) -> tuple[dict, list[int]]:
+    def extract_constant_variable_type(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
         """
         Extract constant/variable 's type.
         """
         _type = ""
         skip_indexes_list = []
 
-        if len(list(token.items())[-1][1]) == 0:
+        if len(token.tokens) == 0:
             return None, None
         
         if self.is_last_token_size(token=token) and current_char == ":":
@@ -496,18 +523,18 @@ class Lexer:
                     current_index + i
                 )
 
-            return {TOKENS[TYPE_TOKEN]: _type}, skip_indexes_list
+            return {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: _type}, skip_indexes_list
         
         return None, None
 
-    def extract_constant_variable_value(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: dict) -> tuple[dict, list[int]]:
+    def extract_constant_variable_value(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
         """
         Extract constant/variable 's value
         """
         value = ""
         skip_indexes_list = []
 
-        if len(list(token.items())[-1][1]) == 0:
+        if len(token.tokens) == 0:
             return None, None
         
         if self.is_last_token_type(token=token) and current_char == "=":
@@ -539,7 +566,7 @@ class Lexer:
                     current_index + i
                 )
             
-            return {TOKENS[VALUE_TOKEN]: value}, skip_indexes_list
+            return {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}, skip_indexes_list
 
         return None, None
     
