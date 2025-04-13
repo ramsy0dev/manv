@@ -39,15 +39,16 @@ from manv.src.parser.tokens import *
 
 # Builtin
 from manv.src.builtin.types import *
+from manv.src.builtin.literals import *
 
 # AST
 from manv.src.ast.nodes import *
 
 BUILTIN_TYPES_OBJ_MAP =  {
-    IntType: Number,
-    FloatType: Float,
-    StrType: String,
-    CharType: Char
+    IntType: NumberLiteral,
+    FloatType: FloatLiteral,
+    StrType: StringLiteral,
+    CharType: CharLiteral
 }
 
 # Parser
@@ -66,8 +67,8 @@ class Parser:
 
         last_line = None
 
-        for i, line in enumerate(tokens.tokens):
-            current_line = line
+        for i, token in enumerate(tokens.tokens):
+            current_line = token.line
             
             if len(tokens.tokens) - ((i+1)+1) < 0:
                 next_line = None
@@ -75,15 +76,15 @@ class Parser:
                 next_line = tokens.tokens[i+1]
 
             file_path = tokens.file_path
-            line_tokens = current_line["tokens"]
-            line_n = current_line["line_n"]
+            line_tokens = token.tokens
+            line_n = current_line.line_number
 
             # Ignore Empty lines
             if len(line_tokens) == 0:
                 continue
 
             # Keywords
-            if list(line_tokens[0].items())[0][0] == TOKENS[KEYWORD_TOKEN]:
+            if list(line_tokens[0].items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]:
                 keyword = list(line_tokens[0].items())[0][1]
                 # CONST_KEYWORD
                 if keyword == KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]:
@@ -96,13 +97,14 @@ class Parser:
                         identifier=Identifier(
                             name=const_identifier
                         ),
-                        size=Number(
+                        size=NumberLiteral(
                             value=const_size
                         ),
                         typ=BUILTIN_TYPES[const_type](),
                         value=BUILTIN_TYPES_OBJ_MAP[BUILTIN_TYPES[const_type]](
                             value=const_value
-                        )
+                        ),
+                        line=current_line
                     )
 
                     program.statements.append(
