@@ -1,0 +1,12 @@
+# Test configuration for 'tests/io/test_print_invalid_text_error.asm'
+
+[Test]
+test_file_path="./tests/io/test_print_invalid_text_error.asm"
+test_file_object_path="./tests/io/test_print_invalid_text_error.o"
+binary_file_path="./tests/io/test_print_invalid_text_error"
+lib_file_path="./std/io.asm"
+lib_object_path="./std/libs/io.o"
+stdout=[]
+stderr=[
+    "Invalid text"
+]
