@@ -22,10 +22,12 @@
 
 __all__ = [
     "Type",
+    "MultiType",
     "StrType",
     "IntType",
     "CharType",
     "FloatType",
+    "CallType",
     "BUILTIN_TYPES"
 ]
 
@@ -33,6 +35,12 @@ from dataclasses import dataclass
 
 class Type:
     pass
+
+class MultiType:
+    type_list: list[Type]
+
+    def __init__(self, type_list: list[Type]) -> None:
+        self.type_list = type_list
 
 @dataclass
 class StrType(Type):
@@ -49,6 +57,10 @@ class IntType(Type):
 @dataclass
 class FloatType(Type):
     bits: int = 64
+
+@dataclass
+class CallType(Type):
+    bits: int = 22
 
 BUILTIN_TYPES: dict[str, Type] = {
     "int": IntType,
