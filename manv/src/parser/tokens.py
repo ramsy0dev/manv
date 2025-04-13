@@ -130,7 +130,7 @@ AT_SYMBOL = iota.new()
 DOLLAR_SYMBOL = iota.new()
 
 # Tokens types
-TOKENS: dict[int, str] = {
+TOKENS_SYNTAX_MAP: dict[int, str] = {
     KEYWORD_TOKEN: "KEYWORD_TOKEN",
     WORD_TOKEN: "WORD_TOKEN",
     IDENTIFIER_TOKEN: "IDENTIFIER_TOKEN",
