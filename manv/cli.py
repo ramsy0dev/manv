@@ -78,7 +78,7 @@ def compile(
         None, "--file-path", help="The path to the manv script file."
     ),
     output_format: output_file_format = typer.Option(
-        "bin", "--format", help="Select output file format."
+        "elf64", "--format", help="Select output file format."
     ),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use."),
 ) -> None:
@@ -114,7 +114,7 @@ def compile(
         f"[bold green][INFO][reset]: Generating an AST tree..."
     )
 
-    ast_tree = parser.parse(tokens=tokens)
+    program = parser.parse(tokens=tokens)
 
     # Generate assembly
     codegen = Codegen()
@@ -122,62 +122,58 @@ def compile(
     print(
         f"[bold green][INFO][reset]: Generating assembly code..."
     )
-    codegen.codegen(
-        ast_tree=ast_tree
+
+    generated_asm_code = codegen.codegen(
+        program=program
+    )
+    generated_asm_code = generated_asm_code.get_assembly()
+
+    output_asm_file_name = file_name.replace(".mv", ".asm")
+    output_object_file_name = file_name.replace(".mv", ".o")
+    output_binary_file_name = file_name.replace(".mv", "")
+
+    # Save the generated assembly
+    with open(output_asm_file_name, "w") as output:
+        output.write(generated_asm_code)
+
+    # Compile the generated assembly
+    print(
+        f"[bold green][INFO][reset]: Compiling generated assembly [cyan]'{output_asm_file_name}'[reset]..."
     )
 
-    # # Generate assembly
-    # asm = ASM()
+    compile_out = subprocess.run(
+        [
+            "nasm",
+            "-f",
+            output_format,
+            output_asm_file_name,
+            "-o", output_object_file_name
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
 
-    # print(
-    #     f"[bold green][INFO][reset]: Generating assembly..."
-    # )
+    exec_out = subprocess.run(
+        [
+            "ld",
+            "-s",
+            "-o",
+            output_binary_file_name,
+            output_object_file_name
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    if compile_out.stderr != b'':
+        print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{exec_out.stderr.decode()}")
+        sys.exit(1)
+
+    # Cleaning up
+    print("[bold green][INFO][reset]: Cleaning up...")
     
-    # asm_code = asm.generate_asm()
-
-    # output_asm_file_name = file_name.replace(".mv", ".asm")
-    # output_binary_file_name = file_name.replace(".mv", "")
-
-    # # Save the generated assembly
-    # with open(output_asm_file_name, "w") as output:
-    #     output.write(asm_code)
-
-    # # Compile the generated assembly
-    # print(
-    #     f"[bold green][INFO][reset]: Compiling generated assembly [cyan]'{output_asm_file_name}'[reset]..."
-    # )
-
-    # compile_out = subprocess.run(
-    #     [
-    #         "nasm",
-    #         "-f",
-    #         output_format,
-    #         output_asm_file_name,
-    #         "-o", output_binary_file_name
-    #     ],
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE
-    # )
-    # exec_out = subprocess.run(
-    #     [
-    #         "chmod",
-    #         "+x",
-    #         output_binary_file_name
-    #     ],
-    #     stdout=subprocess.PIPE,
-    #     stderr=subprocess.PIPE
-    # )
-    # if compile_out.stderr != b'':
-        
-    #     print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{out.stderr.decode()}")
-    #     sys.exit(1)
-
-    # # Cleaning up
-    # print("[bold green][INFO][reset]: Cleaning up...")
-    
-    # subprocess.run(
-    #     ["rm", output_asm_file_name]
-    # )
+    subprocess.run(
+        ["rm", output_asm_file_name, output_object_file_name]
+    )
     
 @cli.command()
 def build_lexer(
