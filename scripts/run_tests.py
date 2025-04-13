@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 # MIT License
 
 # Copyright (c) 2025 ramsy0dev
@@ -63,7 +65,7 @@ def generate_test_objects() -> None:
     
     for file in files:
         # Skip asm files
-        if file.endswith(".asm") or file.endswith(".o"):
+        if file.endswith(".asm") or file.endswith(".o") or file.endswith(".mv"):
           continue
         
         # Skip binary files
@@ -155,11 +157,11 @@ def run_test_file(test: Test) -> None:
     if stderr_output != expected_stderr:
         print("[bold red]FAILD[reset]")
         print(
-            f"[bold green][INFO][reset]: Expected stderr from test '{test.test_file_path}'\n"
+            f"[bold yellow][WARNING][reset]: Expected stderr from test '{test.test_file_path}'\n"
             f"\t STDERR = {expected_stderr}"
         )
         sys.exit(1)
-
+      
     # Check the stdout
     stdout_output = out.stdout.decode().strip()
     expected_stdout = "\n".join(test.stdout).strip()
@@ -167,11 +169,11 @@ def run_test_file(test: Test) -> None:
     if stdout_output != expected_stdout:
         print("[bold red]FAILD[reset]")
         print(
-            f"[bold green][INFO][reset]: Expected stdout from test '{test.test_file_path}'\n"
+            f"[bold yellow][WARNING][reset]: Expected stdout from test '{test.test_file_path}'\n"
             f"\t STDOUT = {out.stdout.decode() if out.stdout.decode() != '' else None}"
         )
         sys.exit(1)
-    
+
     print("[bold green]PASS[reset]")
 
 def run() -> None:
