@@ -25,11 +25,46 @@ __all__ = [
     "RuleChecker"
 ]
 
-from manv.src.parser.ast import ASTNode
+# Base AST
+from manv.src.ast.base import ASTNode
+
+# Models
+from manv.models.line_model import LineModel
 
 class RuleChecker:
     def __init__(self) -> None:
         pass
 
-    def check_rules(self, ast_tree: ASTNode) -> None:
+    def check_rules(self, program: ASTNode) -> None:
+        """
+        Language rules
+        """
+        # Constant declaration
+        
+    def check_constant_rules(self, constant: Constant) -> tuple[bool, str]:
+        """
+        Check constant rules
+        """
         pass
+
+    def check_variable_rules(self, variable: Variable) -> tuple[bool, str]:
+        """
+        Check variable rules
+        """
+        pass
+    
+    def call_stack(self, last_line: LineModel, current_line: LineModel, next_line: LineModel) -> str:
+        """
+        Call stack trace.
+        """
+        last_line_source_code = last_line.content
+        current_line_source_code = current_line.content
+        next_line_source_code = next_line.content
+        
+        msg = (
+            f"\t   {last_line.line_number} | {last_line_source_code.strip()}\n"
+            f"\t-> {current_line.line_number} | {current_line_source_code.strip()}\n"
+            f"\t   {next_line.line_number} | {next_line_source_code.strip()}\n"
+        )
+
+        return msg
