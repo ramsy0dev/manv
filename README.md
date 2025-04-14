@@ -57,9 +57,9 @@ var add_res: int;
 var div_res: float;
 var sub_res: int;
 
-MUL (x, y) into mul_res;     // Multiplication
-ADD (x, y) into add_res;     // Addition
-DIV (x, y) into div_res;     // Division
-SUB (x, y) into sub_res;     // Subtraction
+mul (x, y) into mul_res;     // Multiplication
+add (x, y) into add_res;     // Addition
+div (x, y) into div_res;     // Division
+sub (x, y) into sub_res;     // Subtraction
 ```
 
