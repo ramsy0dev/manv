@@ -22,11 +22,10 @@
 
 import sys
 import typer
-import pathlib
 import subprocess
 
-from enum import Enum
 from rich import print
+from pathlib import Path
 from typing import Literal
 
 # Parser
@@ -47,38 +46,15 @@ from manv.common import PLATFORM, PL_LINUX
 # Init cli
 cli = typer.Typer()
 
-class output_file_format(str, Enum):
-    """
-    Output file format for assembly
-    """
-    bin = "bin"
-    ith = "ith"
-    srec = "srec"
-    aout = "aout"
-    aoutb = "aoutb"
-    coff = "coff"
-    elf32 = "elf32"
-    elf64 = "elf64"
-    elfx32 = "elfx32"
-    as86 = "as86"
-    obj = "obj"
-    win32 = "win32"
-    win64 = "win64"
-    ieee = "ieee"
-    macho32 = "macho32"
-    macho64 = "macho64"
-    dbg = "dbg"
-    elf = "elf"
-    macho = "macho"
-    win = "win"
-
 @cli.command()
 def compile(
-    file_path: str = typer.Option(
-        None, "--file-path", help="The path to the manv script file."
-    ),
-    output_format: output_file_format = typer.Option(
-        "elf64", "--format", help="Select output file format."
+    file_path: Path = typer.Argument(help="The path to the manv script file"),
+    libs_dir_path: Path = typer.Option(
+        Path("./stdlib/libs"), "-L", help=(
+            "Specifies a directory to be added to the linker’s library search paths."
+            "This allows the linker to locate libraries used with the -l option."
+            "The directory is searched before the standard system library paths."
+        )
     ),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use."),
 ) -> None:
@@ -86,13 +62,13 @@ def compile(
     Compile a manv program source.
     """
     # Check for file existance
-    if not pathlib.Path(file_path).exists():
+    if not file_path.exists():
         print(
             f"[bold red][ERROR][reset]: The provided file path '{file_path}' doesn't exists."
         )
         sys.exit(1)
 
-    file_name = pathlib.Path(file_path).name
+    file_name = file_path.name
 
     file = FileHandler(file_path)
     file_content = file.read(threads=threads)
@@ -106,7 +82,6 @@ def compile(
 
     tokens = lexer.generate_tokens(data=file_content, file_path=file_path)
 
-    
     # Build an AST
     parser = Parser()
 
@@ -145,7 +120,7 @@ def compile(
         [
             "nasm",
             "-f",
-            output_format,
+            "elf64",
             output_asm_file_name,
             "-o", output_object_file_name
         ],
@@ -156,6 +131,8 @@ def compile(
     exec_out = subprocess.run(
         [
             "ld",
+            "-L",
+            libs_dir_path,
             "-s",
             "-o",
             output_binary_file_name,
@@ -171,22 +148,20 @@ def compile(
     # Cleaning up
     print("[bold green][INFO][reset]: Cleaning up...")
     
-    subprocess.run(
-        ["rm", output_asm_file_name, output_object_file_name]
-    )
+    # subprocess.run(
+    #     ["rm", output_asm_file_name, output_object_file_name]
+    # )
     
 @cli.command()
 def build_lexer(
-    file_path: str = typer.Option(
-        None, "--file-path", help="The path to the manv script file."
-    ),
+    file_path: Path = typer.Argument(help="The path to the manv script file"),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use."),
 ) -> None:
     """
     Build the lexer tree.
     """
     # Check for file existance
-    if not pathlib.Path(file_path).exists():
+    if not file_path.exists():
         print(
             f"[bold red][ERROR][reset]: The provided file path '{file_path}' doesn't exists."
         )
@@ -205,7 +180,7 @@ def build_lexer(
 
     for token in program_tokens.tokens:
         print(
-            f"[bold green][INFO][reset]: line '{token['line_n']}': \n\t{'\n\t'.join([str(i) for i in token['tokens']])}"
+            f"[bold green][INFO][reset]: line '{token.line.line_number}': \n\t{'\n\t'.join([str(i) for i in token.tokens])}"
         )
 
 
