@@ -34,17 +34,17 @@ ADD_KEYWORD = iota.new()  # Addition
 DIV_KEYWORD = iota.new()  # Division
 SUB_KEYWORD = iota.new()  # Substitution
 
-
 # ------------------------------------- #
 # ---- Variable/Constants keywords ---- #
 # ------------------------------------- #
-CONST_KEYWORD = iota.new()  # Declare a constant
-VAR_KEYWORD = iota.new()  # Declare a variable
-SIZE_INC_KEYWORD = iota.new()  # Increase the size of a variable
-SIZE_DEC_KEYWORD = iota.new()  # Decrease the size of a variable
-EMT_KEYWORD = iota.new()  # Empty a variable from its value
-DEL_KEYWORD = iota.new()  # Delete a variable/constant from memory.
-COMMENT_KEYWORD = iota.new() # The double forward-slash for comments
+CONST_KEYWORD       =   iota.new()  # Declare a constant
+VAR_KEYWORD         =   iota.new()  # Declare a variable
+SIZE_INC_KEYWORD    =   iota.new()  # Increase the size of a variable
+SIZE_DEC_KEYWORD    =   iota.new()  # Decrease the size of a variable
+EMT_KEYWORD         =   iota.new()  # Empty a variable from its value
+DEL_KEYWORD         =   iota.new()  # Delete a variable/constant from memory.
+INTO_KEYWORD        =   iota.new()  # Direct result into a variable.
+COMMENT_KEYWORD     =   iota.new() # The double forward-slash for comments
 
 # Builtin types
 INT_TYPE = iota.new()
@@ -56,25 +56,27 @@ BOOL_FALSE_TYPE = iota.new()
 
 # Token type
 KEYWORD_TOKEN = iota.new()  # Represents a language keyword.
-WORD_TOKEN = (
-    iota.new()
-)  # Reperesents any kind a instruction that doesn't use any of the language's keyword.
+WORD_TOKEN = iota.new()# Reperesents any kind a instruction that doesn't use any of the language's keyword.
 IDENTIFIER_TOKEN = iota.new()  # Name of a variable, constants, function, structure...
 TYPE_TOKEN = iota.new()  # Type literal
 VALUE_TOKEN = iota.new()  # Representing constant, variable... value
 COMMENT_TOKEN = iota.new()
 
 # Literals
-SIZE_LITERAL = iota.new()  # Size to allocat for any type of data.
-DYNAMIC_SIZE_LITERAL = iota.new()
-NUMBER_LITERAL = iota.new()
-FLOAT_LITERAL = iota.new()
-BIN_LITERAL = iota.new()  # A binary literal, ex: 0b0001, 0b0010, ...
-HEX_LITERAL = iota.new()  # A hexadecimal literal, ex: 0xFF, 0x1A3F ...
-TRUE_LITERAL = iota.new()
-FALSE_LITERAL = iota.new()
-NULL_LITERAL = iota.new()
-SPACE_LITERAL = iota.new()
+SIZE_LITERAL            =   iota.new()  # Size to allocat for any type of data.
+DYNAMIC_SIZE_LITERAL    =   iota.new()
+NUMBER_LITERAL          =   iota.new()
+FLOAT_LITERAL           =   iota.new()
+BIN_LITERAL             =   iota.new()  # A binary literal, ex: 0b0001, 0b0010, ...
+HEX_LITERAL             =   iota.new()  # A hexadecimal literal, ex: 0xFF, 0x1A3F ...
+TRUE_LITERAL            =   iota.new()
+FALSE_LITERAL           =   iota.new()
+NULL_LITERAL            =   iota.new()
+SPACE_LITERAL           =   iota.new()
+
+OP_RIGHT_ELEMENT_LITERAL    =   iota.new() 
+OP_LEFT_ELEMENT_LITERAL     =   iota.new()
+UNINITIALIZED_VAR_LITERAL   =   iota.new()
 
 # Symbols
 SEMICOLON_SYMBOL = iota.new()
@@ -151,6 +153,7 @@ KEYWORDS_SYNTAX_MAP: dict[int, str] = {
     SIZE_DEC_KEYWORD: "SIZE_DEC_KEYWORD",
     EMT_KEYWORD: "EMT_KEYWORD",
     DEL_KEYWORD: "DEL_KEYWORD",
+    INTO_KEYWORD: "INTO_KEYWORD",
     COMMENT_KEYWORD: "COMMENT_KEYWORD"
 }
 
@@ -165,6 +168,7 @@ KEYWORDS: dict[int, str] = {
     SIZE_DEC_KEYWORD: "size_inc",
     EMT_KEYWORD: "emt",
     DEL_KEYWORD: "del",
+    INTO_KEYWORD: "into",
     COMMENT_KEYWORD: "//"
 }
 
@@ -193,6 +197,9 @@ LITERALS_SYNTAX_MAP: dict[int, str] = {
     HEX_LITERAL: "HEX_LITERAL",
     TRUE_LITERAL: "TRUE_LITERAL",
     FALSE_LITERAL: "FALSE_LITERAL",
+    OP_LEFT_ELEMENT_LITERAL: "OP_LEFT_ELEMENT_LITERAL",
+    OP_RIGHT_ELEMENT_LITERAL: "OP_RIGHT_ELEMENT_LITERAL",
+    UNINITIALIZED_VAR_LITERAL: "UNINITIALIZED_VAR_LITERAL",
     SPACE_LITERAL: "SPACE_LITERAL"
 }
 
@@ -311,7 +318,6 @@ SYMBOLS: dict[str, int] = {
     AT_SYMBOL: "@" ,
     DOLLAR_SYMBOL: "$" 
 }
-
 
 def get_reverse_key_value(value, dict_obj: dict) -> any:
     """
