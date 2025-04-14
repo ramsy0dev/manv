@@ -47,7 +47,7 @@ from manv.src.codegen.asm import *
 # Sections
 TEXT_SECTION = "text"
 DATA_SECTION = "data"
-BSS_SECTIOn  = "bss"
+BSS_SECTION  = "bss"
 
 # Labels
 MAIN_FUNC_LABEL = "main"
@@ -113,13 +113,13 @@ class Codegen:
         )
 
         entries = [
+            program.main,
             program,
-            program.main
         ]
 
         for i, entry in enumerate(entries):
             # Main function
-            if i == 1:
+            if i == 0:
                 self.asm.add_to_section(
                     section=TEXT_SECTION,
                     label=MAIN_FUNC_LABEL,
@@ -147,7 +147,167 @@ class Codegen:
                 label=statement.identifier.name + "_const",
                 code=f"{statement.identifier.name} {'db'  if isinstance(statement.typ, (CharType, StrType)) else 'dq'} {statement.value.value}\n"
             )
+
+        # Variable declaration
+        if isinstance(statement, Variable):
+            # Determine which section to use
+            section = None
+            asm_code = ""
+
+            if statement.value is None:
+                section = BSS_SECTION
+                asm_code = "\t" + f"{statement.identifier.name} resq {statement.size.value}\n"
+            else:
+                section = DATA_SECTION
+                if isinstance(statement.typ, (CharType, StrType)): # Use 'db'
+                    asm_code = "\t" + f"{statement.identifier.name} db {statement.value.value}"
+                else:   # Use 'dq'
+                    asm_code = "\t" + f"{statement.identifier.name} dq {statement.value.value}"
             
+            self.asm.add_to_section(
+                section=section,
+                label=statement.identifier.name + "_var",
+                code=asm_code
+            )
+    
+        # Operations
+        if isinstance(statement, (MultiplyOp, DivideOp, AdditionOp, SubtractionOp)):
+            asm_code = list()
+
+            if isinstance(statement, MultiplyOp):
+                regs = ["rax", "rbx"]
+                left = None
+                right = None
+                
+                if isinstance(statement.left, Identifier):
+                    left = f"[{statement.left.name}]"
+                else:
+                    left = statement.left.value
+                
+                if isinstance(statement.right, Identifier):
+                    right = f"[{statement.right.name}]"
+                else:
+                    right = statement.right.value
+                
+                # Load values from memory
+                asm_code.append(
+                    "\t" + f"mov {regs[0]}, {left}\n"
+                )
+                asm_code.append(
+                    "\t" + f"mov {regs[1]}, {right}\n"
+                )
+
+                # Preform the multiplication
+                asm_code.append(
+                    "\t" + f"imul {regs[0]}, {regs[1]}\n"
+                )
+
+                # Store the result in the result identifier
+                asm_code.append(
+                    "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
+                )
+            elif isinstance(statement, DivideOp):
+                regs = ["rax", "rdx", "rcx"]
+                left = None
+                right = None
+                
+                if isinstance(statement.left, Identifier):
+                    left = f"[{statement.left.name}]"
+                else:
+                    left = statement.left.value
+                
+                if isinstance(statement.right, Identifier):
+                    right = f"[{statement.right.name}]"
+                else:
+                    left = statement.right.value
+                
+                asm_code.append(
+                    "\t" + f"mov {regs[0]}, {left}\n"
+                )
+
+                # Clear rdx (high bits of dividend)
+                asm_code.append(
+                     "\t" + f"xor {regs[1]}, {regs[1]}\n"
+                )
+
+                asm_code.append(
+                     "\t" + f"mov {regs[2]}, {right}\n"
+                )
+
+                # Preform the division
+                asm_code.append(
+                     "\t" + f"idiv {regs[2]}\n"
+                )
+
+                # Store the result in the result identifier
+                asm_code.append(
+                    "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
+                )
+            elif isinstance(statement, AdditionOp):
+                regs = ["rax"]
+                left = None
+                right = None
+
+                if isinstance(statement.left, Identifier):
+                    left = f"[{statement.left.name}]"
+                else:
+                    left = statement.left.value
+                
+                if isinstance(statement.right, Identifier):
+                    right = f"[{statement.right.name}]"
+                else:
+                    left = statement.right.value
+                
+                asm_code.append(
+                    "\t" + f"mov {regs[0]}, {left}\n"
+                )
+
+                # Perform the addition
+                asm_code.append(
+                    "\t" + f"add {regs[0]}, {right}\n"
+                )
+
+                # Store the result in the result identifier
+                asm_code.append(
+                    "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
+                )
+            elif isinstance(statement, SubtractionOp):
+                regs = ["rbx"]
+                left = None
+                right = None
+
+                if isinstance(statement.left, Identifier):
+                    left = f"[{statement.left.name}]"
+                else:
+                    left = statement.left.value
+                
+                if isinstance(statement.right, Identifier):
+                    right = f"[{statement.right.name}]"
+                else:
+                    left = statement.right.value
+                
+                asm_code.append(
+                    "\t" + f"mov {regs[0]}, {left}\n",
+                )
+
+                # Perform the subtraction
+                asm_code.append(
+                    "\t" + f"sub {regs[0]}, {right}\n"
+                )
+
+                # Store the result in the result identifier
+                asm_code.append(
+                    "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
+                )
+
+            # For now we are adding every instruction into the main function
+            # label _start
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=MAIN_FUNC_LABEL,
+                code=asm_code
+            )
+
         # Function
         if isinstance(statement, Function):
             # Baked in assembly implementation
@@ -181,13 +341,13 @@ class Codegen:
                     self.asm.add_to_section(
                         section=TEXT_SECTION,
                         label=statement.identifier.name + "_call_func",
-                        code=f"mov {reg}, {value}\n"
+                        code="\t" + f"mov {reg}, {value}\n"
                     )
 
             self.asm.add_to_section(
                 section=TEXT_SECTION,
                 label=statement.identifier.name + "_call_func",
-                code=f"call {statement.identifier.name}\n"
+                code="\t" + f"call {statement.identifier.name}\n"
             )
     
     def dump_builtin_funcs(self) -> None:

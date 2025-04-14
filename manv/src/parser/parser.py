@@ -86,6 +86,7 @@ class Parser:
             # Keywords
             if list(line_tokens[0].items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]:
                 keyword = list(line_tokens[0].items())[0][1]
+
                 # CONST_KEYWORD
                 if keyword == KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]:
                     const_identifier = list(line_tokens[1].items())[0][1]
@@ -110,11 +111,136 @@ class Parser:
                     program.statements.append(
                         const_declaration
                     )
-        
+
+                # VAR_KEYWORD
+                if keyword == KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]:
+                    var_identifier = list(line_tokens[1].items())[0][1]
+                    var_size = list(line_tokens[2].items())[0][1]
+                    var_type = list(line_tokens[3].items())[0][1]
+                    
+                    # Variable can be uninitialized, so we need to check
+                    # if a value is provided or not
+                    var_value = None
+                    if not list(line_tokens[4].items())[0][0] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]:
+                        var_value = list(line_tokens[4].items())[0][1]
+
+                    var_declaration = Variable(
+                        identifier=Identifier(
+                            name=var_identifier,
+                        ),
+                        size=NumberLiteral(
+                            value=var_size
+                        ),
+                        typ=BUILTIN_TYPES[var_type](),
+                        value=None,
+                        line=current_line
+                    )
+
+                    program.statements.append(var_declaration)
+                
+                # Operations keywords (mul, div, add, sub)
+                op_keywords = list()
+                for pair in list(KEYWORDS_SYNTAX_MAP.items())[:4]:
+                    op_keywords.append(pair[1])
+
+                if keyword in op_keywords:
+                    left_element = list(line_tokens[1].items())[0][1]
+                    left_element_literal = Identifier
+
+                    if self.is_float(left_element):
+                        left_element = float(left_element)
+                        left_element_literal = FloatLiteral
+                    
+                    if self.is_integer(data=left_element):
+                        left_element = int(left_element)
+                        left_element_literal = NumberLiteral
+                    
+                    right_element = list(line_tokens[2].items())[0][1]
+                    right_element_literal = Identifier
+
+                    if self.is_float(data=right_element):
+                        right_element = float(right_element)
+                        right_element_literal = FloatLiteral
+                    else:
+                        if self.is_integer(data=right_element):
+                            right_element = int(right_element)
+                            right_element_literal = NumberLiteral
+                    
+                    result_var_identifier = list(line_tokens[4].items())[0][1]
+
+
+                    op_class = None
+                    match keyword:
+                        case keyword if keyword == KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]:
+                            op_class = MultiplyOp
+                        case keyword if keyword == KEYWORDS_SYNTAX_MAP[ADD_KEYWORD]:
+                            op_class = AdditionOp
+                        case keyword if keyword == KEYWORDS_SYNTAX_MAP[DIV_KEYWORD]:
+                            op_class = DivideOp
+                        case keyword if keyword == KEYWORDS_SYNTAX_MAP[SUB_KEYWORD]:
+                            op_class = SubtractionOp
+                    
+                    op = op_class(
+                        left=left_element_literal(left_element),
+                        right=right_element_literal(right_element),
+                        assign=OpResultAssignment(
+                            identifier=Identifier(
+                                name=result_var_identifier
+                            )
+                        )
+                    )
+
+                    program.statements.append(
+                        op
+                    )
+
             last_line = current_line
 
         return program
     
+    def get_type_literal(self, data):
+        """
+        Get the type literal of data
+        """
+        # Str
+        if isinstance(data, str):
+            return StringLiteral
+        
+        # Char
+        if isinstance(data, str):
+            if len(data) == 1:
+                return CharLiteral
+
+        # Int
+        if isinstance(data, int):
+            return NumberLiteral
+        
+        # Float
+        if isinstance(data, float):
+            return FloatLiteral
+    
+    def is_integer(self, data) -> bool:
+        try:
+            int(data)
+            return True
+        except:
+            return False
+
+    def is_float(self, data) -> bool:
+        try:
+            float(data)
+            # If data is a number it can be both
+            # an int and a float, so eliminate this
+            # by checking if the string representation 
+            # of the data contains a '.' which is only
+            # found in floats.
+            if "." not in str(data):
+                return False
+            return True
+        except:
+            return False
+    
+
     # def call_stack(self, last_line: dict, current_line: dict, next_line: dict) -> str:
     #     """
     #     Call stack trace.
