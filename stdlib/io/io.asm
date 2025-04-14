@@ -20,8 +20,8 @@
 ; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ; SOFTWARE.
 
-; file: stdlib/io.asm
-; description: I/O Library
+; file: stdlib/io/io.asm
+; description: I/O library
 
 section .data
     ; Errors code
@@ -33,7 +33,7 @@ section .data
     invalid_text_len_error_msg  db "Invalid text length", 0xA  ; Error message for invalid text length (print function)
 
 section .text
-global print, flush_stderr, flush_stdout
+global print, printi, exit, flush_stderr, flush_stdout
 
 ; ---------------------------------------------- ;
 ;       Builtin functions implementations        ;
@@ -77,11 +77,54 @@ flush_stderr:
     ;
     ;   -> ret: None
     ; -- manv declaration:
-    ;   -> fn flush_stderr();
+    ;   -> fn flush_stderr() -> NULL;
 
     mov rax, 74                             ; sys_fsync (Flush STDERR)
     mov rdi, 2
     syscall
+
+printi:
+    ; -- function:
+    ;   -> name: printi
+    ;   -> args:
+    ;              Name  | Reg Name
+    ;           ---------|-----------
+    ;               n    |   rdi
+    ;   -> ret: None
+    ; -- manv declaration:
+    ;   -> fn printi(n: int) -> NULL;
+    mov     r9, -3689348814741910323
+    sub     rsp, 40
+    mov     BYTE [rsp+31], 10
+    lea     rcx, [rsp+30]
+.L2:
+    mov     rax, rdi
+    lea     r8, [rsp+32]
+    mul     r9
+    mov     rax, rdi
+    sub     r8, rcx
+    shr     rdx, 3
+    lea     rsi, [rdx+rdx*4]
+    add     rsi, rsi
+    sub     rax, rsi
+    add     eax, 48
+    mov     BYTE [rcx], al
+    mov     rax, rdi
+    mov     rdi, rdx
+    mov     rdx, rcx
+    sub     rcx, 1
+    cmp     rax, 9
+    ja      .L2
+    lea     rax, [rsp+32]
+    mov     edi, 1
+    sub     rdx, rax
+    xor     eax, eax
+    lea     rsi, [rsp+32+rdx]
+    mov     rdx, r8
+    mov     rax, 1
+    syscall
+    add     rsp, 40
+    ret
 
 print:
     ; -- function:
@@ -145,3 +188,8 @@ print:
     syscall
 
     ret
+
+exit:
+    mov rax, 60
+    mov rdi, 0
+    syscall
