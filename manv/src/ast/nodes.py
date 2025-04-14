@@ -160,11 +160,9 @@ class SubtractionOp(ASTNode):
 @dataclass
 class Program(ASTNode):
     statements: List[ASTNode]
-    main: Function
 
     def __init__(self) -> None:
         self.statements = list()
-        self.main = None
     
     def __repr__(self) -> str:
-        return f"Program(statements={self.statements!r}, main={self.main!r})"
+        return f"Program(statements={self.statements!r})"

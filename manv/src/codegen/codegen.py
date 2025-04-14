@@ -73,66 +73,19 @@ class Codegen:
         """
         Generate assembly code based on the program's AST tree.
         """
-        # Exit out if no main function was given
-        # if program.main is None:
-        #     print(f"[bold red][ERROR][reset]: No main function was declared.")
-        #     exit(1)
-
-        # Dump builtin functions
-        self.dump_builtin_funcs()
-
-        program.main = Function(
-            identifier=Identifier(name="main"),
-            arguments=NULL(),
-            statements=[
-                # Call PRINT
-                CallFunction(
-                    identifier=Identifier(name="prints"),
-                    args_list=[
-                        ArgumentValue(
-                           identifier=Identifier(name="char_seq"),
-                           value=CallConstant(
-                            identifier=Identifier(name="text")
-                           ),
-                           reg_label="rsi",
-                        ),
-                        ArgumentValue(
-                            identifier=Identifier(name="length"),
-                            value=NumberLiteral(
-                                value=11
-                            ),
-                            reg_label="rdx"
-                        ),
-                    ]
-                ),
-                # Call EXIT
-                CallFunction(
-                    identifier=Identifier(name="exit")),
-                ],
-            return_type=IntType(),
+        self.asm.add_to_section(
+            section=TEXT_SECTION,
+            label=MAIN_FUNC_LABEL,
+            code=[
+                "global _start\n",
+                ("_start:\n" if len(program.statements) != 0 else "")
+            ]
         )
 
-        entries = [
-            program.main,
-            program,
-        ]
-
-        for i, entry in enumerate(entries):
-            # Main function
-            if i == 0:
-                self.asm.add_to_section(
-                    section=TEXT_SECTION,
-                    label=MAIN_FUNC_LABEL,
-                    code=[
-                        "global _start\n",
-                        ("_start:\n" if len(entry.statements) != 0 else "")
-                    ]
-                )
-
-            for statement in entry.statements:
-                self.process_statement(
-                    statement=statement
-                )
+        for statement in program.statements:
+            self.process_statement(
+                statement=statement
+            )
                 
         return self.asm
 
@@ -206,6 +159,13 @@ class Codegen:
                 asm_code.append(
                     "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
                 )
+
+                # asm_code.append(
+                #     "\t" + f"mov rax, [{statement.assign.identifier.name}]\n"
+                # )
+                # asm_code.append(
+                #     "\t" + f"call printi\n"
+                # )
             elif isinstance(statement, DivideOp):
                 regs = ["rax", "rdx", "rcx"]
                 left = None
@@ -349,16 +309,7 @@ class Codegen:
                 label=statement.identifier.name + "_call_func",
                 code="\t" + f"call {statement.identifier.name}\n"
             )
-    
-    def dump_builtin_funcs(self) -> None:
-        """
-        Dump builtin functions into the output source code.
-        """
-        for builtin_func in BUILTIN_FUNCTIONS:
-            self.process_statement(
-                statement=builtin_func
-            )
-        
+
     def get_size_of_obj(self, obj, seen=None) -> int:
         """
         Recursively find the true size of an object including its references
