@@ -20,7 +20,7 @@
 ; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ; SOFTWARE.
 
-; file: std/io.asm
+; file: stdlib/io.asm
 ; description: I/O Library
 
 section .data

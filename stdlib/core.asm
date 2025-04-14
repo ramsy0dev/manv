@@ -20,7 +20,7 @@
 ; OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 ; SOFTWARE.
 
-; file: ./std/code.asm
+; file: ./stdlib/code.asm
 ; description: The core library for manv
 
 section .data

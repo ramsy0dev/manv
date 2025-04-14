@@ -20,23 +20,23 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// file: std/math.mv
+// file: stdlib/math.mv
 // description: Math library
 
 
 // --------------------------------------- //
 //                Constants                //
 // --------------------------------------- //
-const Pi[]  : float = 3.14159265358979323846;          // Pi: Ratio of a circle's circumference to its diameter. 
-const Tau[] : float = 6.28318530717958647692;          // Tau: Ratio of a circle's circumference to its radius. Equal to 2Pi
-const PHI[] : float = 1.61803398874989484820;          // Phi Golden Ratio: (1 + sqrt(5))/2
-const SILVER_RATIO[]: float = 2.41421356237309504880;  // sqrt(2) + 1
+const Pi: float = 3.14159265358979323846;           // Pi: Ratio of a circle's circumference to its diameter. 
+const Tau: float = 6.28318530717958647692;          // Tau: Ratio of a circle's circumference to its radius. qual to 2Pi
+const PHI: float = 1.61803398874989484820;          // Phi Golden Ratio: (1 + sqrt(5))/2
+const SILVER_RATIO: float = 2.41421356237309504880; // sqrt(2) + 1
 
 // --------------------------------------- //
 //           Functions declarations        //
 // --------------------------------------- //
-fn abs(x: [int, float]) -> [int, float];
-fn sqrt(x: [int, float]) -> [int, float];
+fn abs(x: int | float) -> [int, float];
+fn sqrt(x: int | float) -> [int, float];
 
 
 // --------------------------------------- //
@@ -64,8 +64,8 @@ fn sqrt(x: [int, float]) -> float {
         return 0;
     }
 
-    const tolerance[]: float = 1e-10;
-    var n[]: float = x / 2.0;
+    const tolerance: float = 1e-10;
+    var n: float = x / 2.0;
 
     while (TRUE) {
         n_next = 0.5 * (x + n / x);
