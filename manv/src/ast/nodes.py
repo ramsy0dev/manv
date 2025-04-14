@@ -22,7 +22,6 @@
 
 __all__ = [
     "Program",
-    "BinaryOp",
     "Identifier",
     "Return",
     "Arguments",
@@ -32,7 +31,12 @@ __all__ = [
     "CallFunction",
     "CallConstant",
     "Constant",
-    "Assignment"
+    "Variable",
+    "MultiplyOp",
+    "AdditionOp",
+    "DivideOp",
+    "SubtractionOp",
+    "OpResultAssignment"
 ]
 
 from typing import List
@@ -82,7 +86,6 @@ class Variable(ASTNode):
 class Return(ASTNode):
     value: ASTNode
 
-
 @dataclass
 class ArgumentValue(ASTNode):
     identifier: Identifier
@@ -121,16 +124,38 @@ class CallFunction(ASTNode):
     identifier: Identifier
     args_list: list[ArgumentValue] | None = None
 
-@dataclass
-class BinaryOp(ASTNode):
-    op: int
-    left: ASTNode
-    right: ASTNode
 
 @dataclass
-class Assignment(ASTNode):
-    name: StringLiteral
-    value: ASTNode
+class OpResultAssignment(ASTNode):
+    """
+    Assignment used with 'into' keyword
+    """
+    identifier: Identifier
+
+# Operations
+@dataclass
+class MultiplyOp(ASTNode):
+    left: ASTNode
+    right: ASTNode
+    assign: OpResultAssignment
+
+@dataclass
+class AdditionOp(ASTNode):
+    left: ASTNode
+    right: ASTNode
+    assign: OpResultAssignment
+
+@dataclass
+class DivideOp(ASTNode):
+    left: ASTNode
+    right: ASTNode
+    assign: OpResultAssignment
+
+@dataclass
+class SubtractionOp(ASTNode):
+    left: ASTNode
+    right: ASTNode
+    assign: OpResultAssignment
 
 @dataclass
 class Program(ASTNode):
