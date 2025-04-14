@@ -27,11 +27,11 @@ import subprocess
 
 from rich import print
 
-LIBS_OBJECTS_DIR_PATH = "std/libs"
+LIBS_OBJECTS_DIR_PATH = "stdlib/libs"
 
 ASM_LIBS_PATHS = [
-    "std/core.asm",
-    "std/io.asm"
+    "stdlib/core.asm",
+    "stdlib/io/io.asm"
 ]
 
 def compile_libs_to_object() -> None:
@@ -44,7 +44,7 @@ def compile_libs_to_object() -> None:
         )
         
         out = subprocess.run(
-            ["nasm", "-f", "elf64", path, "-o", f"std/libs/{path.split('/')[-1].replace('asm', 'o')}"],
+            ["nasm", "-f", "elf64", path, "-o", f"stdlib/libs/{path.split('/')[-1].replace('asm', 'o')}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
