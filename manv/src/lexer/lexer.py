@@ -111,7 +111,12 @@ class Lexer:
             last_char = None
             skip_indexes_list        = None
             skip_indexes_list_mirror = None # Mirror of skip_indexes_list
-
+            
+            # NOTE: Instead of looping through each character, we 
+            # need to create seperate functions to detect what instruction
+            # is being given in the current line and generate tokens based off 
+            # of it, this way we can have controll over the syntax of each individual
+            # keyword
             for i, char in enumerate(current_line.content):
                 # Skip processed indexes
                 if skip_indexes_list is not None and len(skip_indexes_list) > 0:
@@ -292,7 +297,7 @@ class Lexer:
                     # print(
                     #     f"[bold blue][DEBUG][reset]: Found math operation elements '{extract_op_elements}' in line '{current_line.line_number}'"
                     # )
-                    token_constrruct = ""
+                    token_construct = ""
                 
                 # Keyword: CONST_KEYWORD
                 if token_construct == "const":
@@ -597,8 +602,9 @@ class Lexer:
         Extract the elements (left, right) in a mathematical operation.
         """
         elements = list()
-        skip_indexes_list = [i for i in range(current_index, len(line_content))]
-
+        skip_indexes_list = [i for i in range(current_index+1, len(line_content))]
+        
+        print(f"Skipping indexes:\n - {skip_indexes_list = } \n - {current_index = } \n - {line_content[current_index:] = }")
         if len(token.tokens) == 0:
             return None, None
         
@@ -656,6 +662,9 @@ class Lexer:
 
                     elements.append({TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: result_var_identifier})
                     elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                
+                if len(elements) == 5:
+                    break
 
         return elements, skip_indexes_list
 
