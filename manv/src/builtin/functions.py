@@ -75,7 +75,7 @@ printi_func = Function(
     return_type=NULL(),
     asm_code={
         "text": [
-            "print:\n",
+            "printi:\n",
             "\t" + "mov     r9, -3689348814741910323\n",
             "\t" + "sub     rsp, 40\n",
             "\t" + "mov     BYTE [rsp+31], 10\n",
