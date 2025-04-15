@@ -607,16 +607,16 @@ class Lexer:
                     in_string = False    # If our current position is inside of a string literal
                     for x, value_char in enumerate(sequence):
                         # Handle string start/end
-                        if value_char in {'"', "'"}:
+                        if value_char in ['"', "'"]:
                             if not in_string:
                                 in_string = True
-                                string_char = char
-                            elif string_char == char:
+                                string_char = value_char
+                            elif string_char == value_char:
                                 in_string = False  # closing the string
 
                         # Stop at semicolon or EOF (in case no semicolon was present at the EOL)
                         # only if not inside a string
-                        if value_char == ';' or value_char == "\n" and not in_string:
+                        if (value_char == ';' or value_char == "\n") and not in_string:
                             # Append the value to the elements
                             elements.append(
                                 {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}
@@ -637,7 +637,7 @@ class Lexer:
                         value += value_char
                 
                 # Break the loop in case all elements are lexed
-                if len(elements) in [3, 4]:
+                if len(elements) in [4, 5]:
                     break
 
                 if char not in [" ", "[", "]", ":"]:
