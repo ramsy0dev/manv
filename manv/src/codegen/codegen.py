@@ -86,7 +86,18 @@ class Codegen:
             self.process_statement(
                 statement=statement
             )
-                
+        
+        # Exit syscall
+        self.asm.add_to_section(
+            section=TEXT_SECTION,
+            label="exit_syscall",
+            code=[
+                "\t" + f"mov rax, 60\n",
+                "\t" + f"mov rsi, 0\n",
+                "\t" + f"syscall\n"
+            ]
+        )
+        
         return self.asm
 
     def process_statement(self, statement: ASTNode) -> str:
