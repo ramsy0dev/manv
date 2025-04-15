@@ -87,8 +87,6 @@ class Lexer:
             if last_line is not None:
                 last_line.next_line = current_line
             
-
-            # print(f"[bold blue][DEBUG][reset]: {current_line}")
             split_line_content = [
                 i  for i in current_line.content.split(" ") if i != ""
             ]
@@ -134,25 +132,21 @@ class Lexer:
                 next_char = current_line.content[i+1] if i+1 < len(current_line.content) else None
 
                 # Empty space
-                # if char == ' ':
-                #     last_char = char
-                #     last_line = current_line
+                if char == ' ':
+                    last_char = char
+                    last_line = current_line
 
-                #     # token.tokens.append({LITERALS_SYNTAX_MAP[SPACE_LITERAL]: " "})
-
-                #     continue
+                    continue
                 
                 # Comment line
                 if char == "/" and next_char == "/":
                     token.tokens.append({KEYWORDS_SYNTAX_MAP[COMMENT_KEYWORD]: KEYWORDS[COMMENT_KEYWORD]})
                     token.tokens.append({TOKENS_SYNTAX_MAP[COMMENT_TOKEN]: current_line.content[i+2:]})
-
                     break
 
                 # End-Of-Line without a semicolon
                 if i != 0:                              # Ignore EOF in empty lines
                     if char != ";" and next_char == "\n":
-                        print(f"{char = }, {next_char = }, {last_char = }")
                         print(
                             f"[bold red][ERROR][reset]: Expected a semicolon at end of line '{token.line.line_number}'"
                         )
@@ -169,9 +163,9 @@ class Lexer:
                             if x == "/" and text[_+1] == "/":
                                 is_eof = True
                 if is_eof:
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Reached EOF of line '{current_line.line_number}'."
-                    # )
+                    print(
+                        f"[bold blue][DEBUG][reset]: Reached EOF of line '{current_line.line_number}'."
+                    )
                     
                     token.tokens.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: SYMBOLS[SEMICOLON_SYMBOL]})
                     token_construct = ""
@@ -179,225 +173,87 @@ class Lexer:
                 
                 token_construct += char
                 
-                # print(
-                #     f"[bold blue][DEBUG][reset]: Last char {last_char!r}, current char {char!r}, next char {next_char!r},constructed token {token_construct!r}"
-                # )
-                
-                # Constant/Variable name
-                constant_identifier = self.extract_constant_identifier(
-                    token_construct=token_construct,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    token=token
-                )
-
-                variable_identifier = self.extract_variable_identifier(
-                    token_construct=token_construct,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    token=token
-                )
-
-                if constant_identifier is not None or variable_identifier is not None:
-                    log_msg = (f"[bold blue][DEBUG][reset]: Found ") + \
-                        (f"constant identifier '{constant_identifier[TOKENS_SYNTAX_MAP[WORD_TOKEN]]}'" if constant_identifier is not None else f"variable identifier '{variable_identifier[TOKENS_SYNTAX_MAP[WORD_TOKEN]]}'") + \
-                        (f"in line '{current_line.line_number}'.")
-                    
-                    # print(log_msg)
-                    
-                    if constant_identifier is not None:
-                        token.tokens.append(constant_identifier)
-                    if variable_identifier is not None:
-                        token.tokens.append(variable_identifier)
-                    
-                    token_construct = ""
-
-                # Constant/Variable size
-                size, skip_indexes_list = self.extract_constant_variable_size(
-                    token_construct=token_construct,
-                    current_index=i,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    line_content=current_line.content,
-                    token=token
-                )
-
-                if size is not None:
-                    size_n = size[LITERALS_SYNTAX_MAP[SIZE_LITERAL]] if LITERALS_SYNTAX_MAP[SIZE_LITERAL] in size else size[LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]]
-                    is_dynamic = LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL] in size
-
-                    log_msg = f"[bold blue][DEBUG][reset]: Found size literal '{size_n}' in line '{current_line.line_number}'." \
-                        if not is_dynamic else f"[bold blue][DEBUG][reset]: Found dynamic size in line '{current_line.line_number}'." \
-                    
-                    # print(log_msg)
-                    
-                    token.tokens.append(size)
-                    token_construct = ""
-                
-                # Constant/Variable type
-                _type, skip_indexes_list = self.extract_constant_variable_type(
-                    token_construct=token_construct,
-                    current_index=i,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    line_content=current_line.content,
-                    token=token
-                )
-
-                if _type is not None:
-                    # print(f"[bold blue][DEBUG][reset]: Found type literal '{_type[TOKENS_SYNTAX_MAP[TYPE_TOKEN]]}' in line '{current_line.line_number}'.")
-                    
-                    token.tokens.append(_type)
-                    token_construct = ""
-                
-                value, skip_indexes_list = self.extract_constant_variable_value(
-                    token_construct=token_construct,
-                    current_index=i,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    line_content=current_line.content,
-                    token=token
-                )
-
-                if value is not None:
-                    log_msg = ""
-                    if TOKENS_SYNTAX_MAP[VALUE_TOKEN] in value:
-                        log_msg = f"[bold blue][DEBUG][reset]: Found value '{value[TOKENS_SYNTAX_MAP[VALUE_TOKEN]]}' in line '{current_line.line_number}'."
-                    else:
-                        log_msg = f"[bold blue][DEBUG][reset]: No value set in line '{current_line.line_number}'."
-                    
-                    # print(log_msg)
-
-                    token.tokens.append(value)
-                    token_construct = ""
-                
-                
-                # Math operation elements
-                extract_op_elements, skip_indexes_list = self.extract_op_elements(
-                    token_construct=token_construct,
-                    current_index=i,
-                    current_char=char,
-                    last_char=last_char,
-                    next_char=next_char,
-                    line_content=current_line.content,
-                    token=token
-                )
-
-                if extract_op_elements is not None:
-                    for element in extract_op_elements:
-                        token.tokens.append(
-                            element
-                        )
-                    
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found math operation elements '{extract_op_elements}' in line '{current_line.line_number}'"
-                    # )
-                    token_construct = ""
-                
                 # Keyword: CONST_KEYWORD
                 if token_construct == "const":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[CONST_KEYWORD]})
+                    
+                    const_declaration = self.parse_constant_declaration(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    for tok in const_declaration:
+                        token.tokens.append(
+                            tok
+                        )
+ 
                     token_construct = ""
+                    break
                 
                 # Keyword: VAR_KEYWORD
                 if token_construct == "var":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] :  KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]})
-                    token_construct = ""
 
-                # Keyword: MUL_KEYWORD
-                if token_construct == "mul":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
+                    var_declaration = self.parse_variable_declaration(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        line_content=current_line.content,
+                        token=token
+                    )
 
-                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
+                    for tok in var_declaration:
+                        token.tokens.append(tok)
+                    
                     token_construct = ""
+                    break
 
                 # Keyword: SIZE_INC_KEYWORD
                 if token_construct == "size_inc":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_INC_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: SIZE_DEC_KEYWORD
                 if token_construct == "size_dec":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_DEC_KEYWORD]})
                     token_construct = ""
 
                 # Keyword: EMT_KEYWORD
                 if token_construct == "emt":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[EMT_KEYWORD]})
                     token_construct = ""
                 
                 # Keyword: DEL_KEYWORD
                 if token_construct == "del":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DEL_KEYWORD]})
                     token_construct = ""
                 
-                # Keyword: MUL_KEYWORD
-                if token_construct == "mul":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
+                # Keyword: MUL_KEYWORD, ADD_KEYWORD, SUB_KEYWORD, DIV_KEYWORD
+                if token_construct in ["mul", "add", "sub", "div"]:
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[MUL_KEYWORD]})
+                    
+                    parsed_op_elements, skip_indexes_list = self.parse_op_elements(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        last_char=last_char,
+                        next_char=next_char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    if parsed_op_elements is not None:
+                        for element in parsed_op_elements:
+                            token.tokens.append(
+                                element
+                            )
+                        
                     token_construct = ""
-                
-                # Keyword: ADD_KEYWORD
-                if token_construct == "add":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
-                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[ADD_KEYWORD]})
-                    token_construct = ""
-                
-                # Keyword: DIV_KEYWORD
-                if token_construct == "div":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
-                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[DIV_KEYWORD]})
-                    token_construct = ""
-
-                # Keyword: SUB_KEYWORD
-                if token_construct == "sub":
-                    # print(
-                    #     f"[bold blue][DEBUG][reset]: Found token '{token_construct}' in line '{current_line.line_number}'."
-                    # )
-
-                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SUB_KEYWORD]})
-                    token_construct = ""
-
+                    break
+            
             tokens.tokens.append(token)
 
             last_line = current_line
@@ -405,6 +261,16 @@ class Lexer:
             
         return tokens
 
+    def strip_line_from_comments(self, line_content: str) -> str:
+        """
+        Stip the line from comments.
+        """
+        for i, char in enumerate(line_content):
+            if char == "/" and line_content[i+1] == "/":
+                return line_content[:i]
+        
+        return line_content
+    
     def is_last_token_const(self, token: dict, index: int | None = -1) -> bool:
         """
         Is the last token a constant keyword
@@ -466,145 +332,326 @@ class Lexer:
 
         return list(first_token.items())[0][1] in ops
 
-    def extract_constant_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: Token) -> dict:
+    def is_line_context_const(self, token: Token) -> bool:
         """
-        Extract the constant's identifier
+        Is the current line context a constant declaration keyword.
         """
-        if len(token.tokens) == 0:
-            return None
-
-        if self.is_last_token_const(token=token) and next_char in ["[", ":"]:
-            return {
-                TOKENS_SYNTAX_MAP[WORD_TOKEN]: token_construct,
-            }
+        return self.is_last_token_const(token=token, index=0)
     
-    def extract_variable_identifier(self, token_construct: str, current_char: str, last_char: str, next_char: str, token: Token) -> dict:
+    def is_line_context_var(self, token: Token) -> bool:
         """
-        Extract variable's identifier.
+        Is the current line context a variable declaration keyword.
         """
-        if len(token.tokens) == 0:
-            return None
-        
-        if self.is_last_token_var(token=token) and next_char in ["[", ":"]:
-            return {
-                TOKENS_SYNTAX_MAP[WORD_TOKEN]: token_construct,
-            }
+        return self.is_last_token_var(token=token, index=0)
     
-    def extract_constant_variable_size(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
+    def parse_constant_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> list:
         """
-        Extract the constant/variable 's size.
+        Parse constant declaration elements: identifier, size, type, value.
         """
-        size = ""
-        skip_indexes_list = []
+        elements = list()
 
-        if len(token.tokens) == 0:
-            return None, None
-        
-        if self.is_last_token_word(token=token) and current_char == "[":
-            split_line = [_ for _ in line_content[current_index:]]
-            for i, char in enumerate(split_line):
-                if char == "]":
-                    break
+        if self.is_line_context_const(token=token):
+            line_content = line_content[current_index+1:]   # Ignore the 'const' keyword
+            line_content = self.strip_line_from_comments(line_content=line_content)
+            
+            word = ""
+
+            is_size_context = False     # Mark True when we encounter '['
+                                        # Because that will be the start
+                                        # of the constant's size
+            for i, char in enumerate(line_content):
+                next_char = None
+                last_char = None
                 
-                if char == "[":
-                    continue
+                if (i + 1) < len(line_content):
+                    next_char = line_content[i+1]
+                if (i - 1) >= 0:
+                    last_char = line_content[i-1]
 
-                size += char
-                
-                skip_indexes_list.append(
-                    current_index + i
-                )
-        # Check if no fixed size was declared
-        elif self.is_last_token_word(token=token) and current_char == ":":
-            return {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: 0}, skip_indexes_list
-        
-        if len(size) != 0:
-            return {LITERALS_SYNTAX_MAP[SIZE_LITERAL]: size}, skip_indexes_list
-        
-        return None, skip_indexes_list
-
-    def extract_constant_variable_type(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
-        """
-        Extract constant/variable 's type.
-        """
-        _type = ""
-        skip_indexes_list = []
-
-        if len(token.tokens) == 0:
-            return None, None
-        
-        if self.is_last_token_size(token=token) and current_char == ":":
-            for i, char in enumerate(line_content[current_index+1:]):
                 # Ignore spaces
-                if char == ' ':
-                    continue
-                
-                # Stop at semicolon in case no value was given to the constant/variable
-                # or at EQUAL_SYMBOL if otherwise.
-                if char in [";", "="]:
-                    break
-
-                _type += char
-
-                skip_indexes_list.append(
-                    current_index + i
-                )
-
-            return {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: _type}, skip_indexes_list
-        
-        return None, None
-
-    def extract_constant_variable_value(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
-        """
-        Extract constant/variable 's value
-        """
-        value = ""
-        skip_indexes_list = []
-
-        if len(token.tokens) == 0:
-            return None, None
-        
-        if self.is_last_token_type(token=token) and current_char == "=":
-            in_string = False
-            string_char = None  # to track whether it's " or '
-            
-            for i, char in enumerate(line_content[current_index + 1:]):
-                absolute_index = current_index + 1 + i
-
-                # Skip leading spaces
-                if char == ' ' and len(value) == 0:
+                if char == " ":
                     continue
 
-                # Handle string start/end
-                if char in {'"', "'"}:
-                    if not in_string:
-                        in_string = True
-                        string_char = char
-                    elif string_char == char:
-                        in_string = False  # closing the string
+                # Constant identifier
+                #        x: or x[...]:        |        x :  or x [...]:
+                if char in [":", "["] and len(elements) == 0: # Add length so we won't be adding everything
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[WORD_TOKEN]: word}
+                    )
+                    
+                    # Size context
+                    if char == "[":
+                        is_size_context = True
 
-                # Stop at semicolon only if not inside a string
-                if char == ';' and not in_string:
-                    break
+                    word = ""
                 
-                value += char
+                # Constant Size
+                if is_size_context:
+                    # Depending on if the last character
+                    # was '[' or the current character
+                    # the sequence we are going to loop through
+                    # is different.
+                    sequence = None
+                    if char == "[":
+                        sequence = line_content[i+1:]
+                    elif last_char == "[":
+                        sequence = line_content[i:]
 
-                skip_indexes_list.append(
-                    current_index + i
-                )
-            
-            return {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}, skip_indexes_list
+                    for x, size_n in enumerate(sequence):
+                        if size_n == "]" and sequence[x+1] == ":":
+                            break
+                        
+                        # Ignore spaces
+                        if size_n == " ":
+                            continue
+                    
+                        word += size_n
+                    
+                    elements.append(
+                        {
+                            LITERALS_SYNTAX_MAP[SIZE_LITERAL]: word
+                        }
+                    )
 
-        return None, None
+                    is_size_context = False
+                    word = ""
+
+                # Constant type
+                if char == ":":
+                    sequence = line_content[i+1:]
+
+                    typ = ""
+                    for x, type_char in enumerate(sequence):
+                        if type_char == "=":
+                            # Check if no size was given, meaning dynamic size
+                            if len(elements) == 1:  # DO NOT CHANGE THIS PLS
+                                elements.append(
+                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: 0}
+                                )
+                            
+                            elements.append(
+                                {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: typ}
+                            )
+                            typ = ""
+
+                            break
+
+                        # Ignore the spaces between ':' and the actual type
+                        # :   int   =
+                        #  ^^^   ^^^   <- Ignore them
+                        if type_char == " ":
+                            continue
+
+                        typ += type_char
+                    
+                # Constant value
+                if char == "=":
+                    sequence = line_content[i+1:]
+
+                    value = ""
+                    string_char = None   # Track single quotes and double quotes for string literals
+                    in_string = False    # If our current position is inside of a string literal
+                    for x, value_char in enumerate(sequence):
+                        # Handle string start/end
+                        if value_char in {'"', "'"}:
+                            if not in_string:
+                                in_string = True
+                                string_char = char
+                            elif string_char == char:
+                                in_string = False  # closing the string
+
+                        # Stop at semicolon or EOF (in case no semicolon was present at the EOL)
+                        # only if not inside a string
+                        if value_char == ';' or value_char == "\n" and not in_string:
+                            # Append the value to the elements
+                            elements.append(
+                                {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}
+                            )
+
+                            # Append the semicolon in case it is present
+                            if value_char == ";":
+                                elements.append(
+                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                )
+                            
+                            value = ""
+                            break
+
+                        if value_char == " ":
+                            continue
+
+                        value += value_char
+
+                # Break the loop in case all elements are lexed
+                if len(elements) in [4, 5]:
+                    break
+
+                if char not in [" ", "[", "]", ":"]:
+                    word += char
+                
+        return elements
     
-    def extract_op_elements(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
+    def parse_variable_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
         """
-        Extract the elements (left, right) in a mathematical operation.
+        Pase the variable declaration elements.
+        """
+        elements = list()
+
+        if self.is_line_context_var(token=token):
+            line_content = line_content[current_index+1:]   # Ignore the 'const' keyword
+            line_content = self.strip_line_from_comments(line_content=line_content)
+            
+            word = ""
+
+            is_size_context = False     # Mark True when we encounter '['
+                                        # Because that will be the start
+                                        # of the constant's size
+            for i, char in enumerate(line_content):
+                next_char = None
+                last_char = None
+                
+                if (i + 1) < len(line_content):
+                    next_char = line_content[i+1]
+                if (i - 1) >= 0:
+                    last_char = line_content[i-1]
+
+                # Ignore spaces
+                if char == " ":
+                    continue
+
+                # Variable identifier
+                #        x: or x[...]:        |        x :  or x [...]:
+                if char in [":", "["] and len(elements) == 0: # Add length so we won't be adding everything
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[WORD_TOKEN]: word}
+                    )
+                    
+                    # Size context
+                    if char == "[":
+                        is_size_context = True
+
+                    word = ""
+                
+                # Variable Size
+                if is_size_context:
+                    # Depending on if the last character
+                    # was '[' or the current character
+                    # the sequence we are going to loop through
+                    # is different.
+                    sequence = None
+
+                    if char == "[":
+                        sequence = line_content[i+1:]
+                    elif last_char == "[":
+                        sequence = line_content[i:]
+
+                    for x, size_n in enumerate(sequence):
+                        if size_n == "]" and sequence[x+1] == ":":
+                            break
+                        
+                        # Ignore spaces
+                        if size_n == " ":
+                            continue
+                    
+                        word += size_n
+                    
+                    elements.append(
+                        {
+                            LITERALS_SYNTAX_MAP[SIZE_LITERAL]: word
+                        }
+                    )
+
+                    is_size_context = False
+                    word = ""
+
+                # Variable type
+                if char == ":":
+                    sequence = line_content[i+1:]
+
+                    typ = ""
+                    for x, type_char in enumerate(sequence):
+                        if type_char in ["=", ";", "\n"]:
+                            # Check if no size was given, meaning dynamic size
+                            if len(elements) == 1:  # DO NOT CHANGE THIS PLS
+                                elements.append(
+                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: 0}
+                                )
+                            
+                            elements.append(
+                                {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: typ}
+                            )
+
+                            if type_char == ";" and sequence[x+1:x+3] == "\n":
+                                elements.append(
+                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                )
+                                
+                            typ = ""
+
+                            break
+
+                        # Ignore the spaces between ':' and the actual type
+                        # :   int   =
+                        #  ^^^   ^^^   <- Ignore them
+                        if type_char == " ":
+                            continue
+
+                        typ += type_char
+                
+                # Variable value
+                if char == "=":
+                    sequence = line_content[i+1:]
+
+                    value = ""
+                    string_char = None   # Track single quotes and double quotes for string literals
+                    in_string = False    # If our current position is inside of a string literal
+                    for x, value_char in enumerate(sequence):
+                        # Handle string start/end
+                        if value_char in {'"', "'"}:
+                            if not in_string:
+                                in_string = True
+                                string_char = char
+                            elif string_char == char:
+                                in_string = False  # closing the string
+
+                        # Stop at semicolon or EOF (in case no semicolon was present at the EOL)
+                        # only if not inside a string
+                        if value_char == ';' or value_char == "\n" and not in_string:
+                            # Append the value to the elements
+                            elements.append(
+                                {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}
+                            )
+
+                            # Append the semicolon in case it is present
+                            if value_char == ";":
+                                elements.append(
+                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                )
+                            
+                            value = ""
+                            break
+
+                        if value_char == " ":
+                            continue
+
+                        value += value_char
+                
+                # Break the loop in case all elements are lexed
+                if len(elements) in [3, 4]:
+                    break
+
+                if char not in [" ", "[", "]", ":"]:
+                    word += char
+        
+        return elements
+
+    def parse_op_elements(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
+        """
+        Parse the elements (left, right) in a mathematical operation.
         """
         elements = list()
         skip_indexes_list = [i for i in range(current_index+1, len(line_content))]
         
-        print(f"Skipping indexes:\n - {skip_indexes_list = } \n - {current_index = } \n - {line_content[current_index:] = }")
         if len(token.tokens) == 0:
             return None, None
         
