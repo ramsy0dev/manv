@@ -117,14 +117,28 @@ def compile(
         f"[bold green][INFO][reset]: Compiling generated assembly [cyan]'{output_asm_file_name}'[reset]..."
     )
 
+    # Commands
     compile_cmd = [
         "nasm",
         "-f",
         "elf64",
-        ("-g" if dbg else ""),
         output_asm_file_name,
         "-o", output_object_file_name
     ]
+    link_cmd = [
+        "ld",
+        "-L",
+        libs_dir_path.__str__(),
+        "-o",
+        output_binary_file_name,
+        output_object_file_name
+    ]
+
+    # Preserve debug info
+    if dbg:
+        link_cmd.append("-g")
+        compile_cmd.append("-g")
+    
     print(f"[bold cyan][CMD][reset]: [white]{' '.join(compile_cmd)}")
 
     compile_out = subprocess.run(
@@ -132,17 +146,7 @@ def compile(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    
-    link_cmd = [
-        "ld",
-        ("-g" if dbg else ""),
-        "-L",
-        libs_dir_path,
-        # "-s",
-        "-o",
-        output_binary_file_name,
-        output_object_file_name
-    ]
+
     print(f"[bold cyan][CMD][reset]: [white]{' '.join([i if not isinstance(i, PosixPath) else i.__str__() for i in link_cmd])}")
 
     link_out = subprocess.run(
@@ -150,16 +154,17 @@ def compile(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    if compile_out.stderr != b'':
-        print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{link_out.stderr.decode()}")
+    if link_out.stderr != b'' or compile_out.stderr != b'':
+        error = link_out.stderr if link_out.stderr != b'' else compile_out.stderr
+        print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{error.decode()}")
         sys.exit(1)
 
     # Cleaning up
     print("[bold green][INFO][reset]: Cleaning up...")
     
-    # subprocess.run(
-    #     ["rm", output_asm_file_name, output_object_file_name]
-    # )
+    subprocess.run(
+        ["rm", output_asm_file_name, output_object_file_name]
+    )
     
 @cli.command()
 def build_lexer(
