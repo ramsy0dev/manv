@@ -25,7 +25,7 @@ import typer
 import subprocess
 
 from rich import print
-from pathlib import Path
+from pathlib import Path, PosixPath
 from typing import Literal
 
 # Parser
@@ -56,6 +56,7 @@ def compile(
             "The directory is searched before the standard system library paths."
         )
     ),
+    dbg: bool = typer.Option(False, "-dbg", help="Add debug info to the output binary file."),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use."),
 ) -> None:
     """
@@ -116,33 +117,41 @@ def compile(
         f"[bold green][INFO][reset]: Compiling generated assembly [cyan]'{output_asm_file_name}'[reset]..."
     )
 
+    compile_cmd = [
+        "nasm",
+        "-f",
+        "elf64",
+        ("-g" if dbg else ""),
+        output_asm_file_name,
+        "-o", output_object_file_name
+    ]
+    print(f"[bold cyan][CMD][reset]: [white]{' '.join(compile_cmd)}")
+
     compile_out = subprocess.run(
-        [
-            "nasm",
-            "-f",
-            "elf64",
-            output_asm_file_name,
-            "-o", output_object_file_name
-        ],
+        compile_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
+    
+    link_cmd = [
+        "ld",
+        ("-g" if dbg else ""),
+        "-L",
+        libs_dir_path,
+        # "-s",
+        "-o",
+        output_binary_file_name,
+        output_object_file_name
+    ]
+    print(f"[bold cyan][CMD][reset]: [white]{' '.join([i if not isinstance(i, PosixPath) else i.__str__() for i in link_cmd])}")
 
-    exec_out = subprocess.run(
-        [
-            "ld",
-            "-L",
-            libs_dir_path,
-            "-s",
-            "-o",
-            output_binary_file_name,
-            output_object_file_name
-        ],
+    link_out = subprocess.run(
+        link_cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
     if compile_out.stderr != b'':
-        print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{exec_out.stderr.decode()}")
+        print(f"[bold red][ERROR][reset]: Caught the following error when compiling assembly.\n{link_out.stderr.decode()}")
         sys.exit(1)
 
     # Cleaning up
@@ -178,11 +187,11 @@ def build_lexer(
 
     program_tokens = lexer.generate_tokens(data=file_content, file_path=file_path)
 
+    
     for token in program_tokens.tokens:
         print(
             f"[bold green][INFO][reset]: line '{token.line.line_number}': \n\t{'\n\t'.join([str(i) for i in token.tokens])}"
         )
-
 
 def run():
     # Check if platform is not UNIX
