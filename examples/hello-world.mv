@@ -1,0 +1,13 @@
+
+// File: examples/hello-world.mv
+// Description: Simple hello world
+
+const data: str = "Hello World!";
+const data_len: int = 12;
+
+var ERRNO: int;
+
+
+// syscall to sys_write
+syscall 1, 1, data, data_len, ERRNO;
+
