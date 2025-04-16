@@ -25,6 +25,7 @@ __all__ = [
 ]
 
 import sys
+import random
 from rich import print
 
 # Base
@@ -277,6 +278,59 @@ class Codegen:
                 section=TEXT_SECTION,
                 label=MAIN_FUNC_LABEL,
                 code=asm_code
+            )
+
+        # syscall
+        if isinstance(statement, Syscall):
+            label = "syscall_" + str(random.choice(range(999, 9999)))
+            syscall_number = statement.syscall_number
+            args = statement.args
+            error_identifier = statement.error.name
+
+            syscall_regs_list = [
+                "rdi",
+                "rsi",
+                "rdx",
+                "r10",
+                "r8",
+                "r9",
+            ]
+
+            # Move the syscall number to the RAX register
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=label,
+                code=[
+                    "\t" + f"mov rax, {syscall_number}\n",
+                ]
+            )
+            
+            # Move arguments value into the registers
+            for i, arg in enumerate(args):
+                self.asm.add_to_section(
+                    section=TEXT_SECTION,
+                    label=label,
+                    code=[
+                        "\t" + f"mov {syscall_regs_list[i]}, {arg}\n"
+                    ]
+                )
+            
+            # Call syscall
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=label,
+                code=[
+                    "\t" + "syscall\n"
+                ]
+            )
+
+            # Move the error raised by the syscall to the provided identifier
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=label,
+                code=[
+                    "\t" + f"mov [{error_identifier}], rax\n"
+                ]
             )
 
         # Function

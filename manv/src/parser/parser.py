@@ -194,6 +194,25 @@ class Parser:
                         op
                     )
 
+                # keyword: syscall
+                if keyword == KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]:
+                    syscall_number = list(line_tokens[1].items())[0][1]
+                    syscall_args = list()
+                    error_identifier = list(line_tokens[-2].items())[0][1]
+
+                    for syscall_arg in line_tokens[2:-2]:
+                        syscall_args.append(
+                            list(syscall_arg.items())[0][1]
+                        )
+
+                    syscall = Syscall(
+                        syscall_number=syscall_number,
+                        args=syscall_args,
+                        error=Identifier(name=error_identifier)
+                    )
+
+                    program.statements.append(syscall)
+                
             last_line = current_line
 
         return program

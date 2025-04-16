@@ -36,6 +36,7 @@ __all__ = [
     "AdditionOp",
     "DivideOp",
     "SubtractionOp",
+    "Syscall",
     "OpResultAssignment"
 ]
 
@@ -156,6 +157,13 @@ class SubtractionOp(ASTNode):
     left: ASTNode
     right: ASTNode
     assign: OpResultAssignment
+
+# Syscall
+@dataclass
+class Syscall(ASTNode):
+    syscall_number: int
+    args: List
+    error: Identifier
 
 @dataclass
 class Program(ASTNode):

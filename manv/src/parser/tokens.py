@@ -44,7 +44,8 @@ SIZE_DEC_KEYWORD    =   iota.new()  # Decrease the size of a variable
 EMT_KEYWORD         =   iota.new()  # Empty a variable from its value
 DEL_KEYWORD         =   iota.new()  # Delete a variable/constant from memory.
 INTO_KEYWORD        =   iota.new()  # Direct result into a variable.
-COMMENT_KEYWORD     =   iota.new() # The double forward-slash for comments
+SYSCALL_KEYWORD     =   iota.new()  # Make syscall
+COMMENT_KEYWORD     =   iota.new()  # The double forward-slash for comments
 
 # Builtin types
 INT_TYPE = iota.new()
@@ -67,6 +68,7 @@ SIZE_LITERAL            =   iota.new()  # Size to allocat for any type of data.
 DYNAMIC_SIZE_LITERAL    =   iota.new()
 NUMBER_LITERAL          =   iota.new()
 FLOAT_LITERAL           =   iota.new()
+STRING_LITERAL          =   iota.new()
 BIN_LITERAL             =   iota.new()  # A binary literal, ex: 0b0001, 0b0010, ...
 HEX_LITERAL             =   iota.new()  # A hexadecimal literal, ex: 0xFF, 0x1A3F ...
 TRUE_LITERAL            =   iota.new()
@@ -154,6 +156,7 @@ KEYWORDS_SYNTAX_MAP: dict[int, str] = {
     EMT_KEYWORD: "EMT_KEYWORD",
     DEL_KEYWORD: "DEL_KEYWORD",
     INTO_KEYWORD: "INTO_KEYWORD",
+    SYSCALL_KEYWORD: "SYSCALL_KEYWORD",
     COMMENT_KEYWORD: "COMMENT_KEYWORD"
 }
 
@@ -169,6 +172,7 @@ KEYWORDS: dict[int, str] = {
     EMT_KEYWORD: "emt",
     DEL_KEYWORD: "del",
     INTO_KEYWORD: "into",
+    SYSCALL_KEYWORD: "syscall",
     COMMENT_KEYWORD: "//"
 }
 
@@ -193,6 +197,7 @@ LITERALS_SYNTAX_MAP: dict[int, str] = {
     DYNAMIC_SIZE_LITERAL: "DYNAMIC_SIZE_LITERAL",
     NUMBER_LITERAL: "NUMBER_LITERAL",
     FLOAT_LITERAL: "FLOAT_LITERAL",
+    STRING_LITERAL: "STR_LITERAL",
     BIN_LITERAL: "BIN_LITERAL",
     HEX_LITERAL: "HEX_LITERAL",
     TRUE_LITERAL: "TRUE_LITERAL",

@@ -37,7 +37,7 @@ from manv.src.parser.tokens import *
 
 class Token:
     """
-    Class representing a single token
+    Class representing a line's tokens
     """
     line: LineModel
     tokens: dict
@@ -253,7 +253,29 @@ class Lexer:
                         
                     token_construct = ""
                     break
-            
+                
+                # Keyword: SYSCALL_KEYWORD
+                if token_construct == "syscall":
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]}
+                    )
+
+                    syscall = self.parse_syscall_elements(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        last_char=last_char,
+                        next_char=next_char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    for tok in syscall:
+                        token.tokens.append(tok)
+                    
+                    token_construct = ""
+                    break
+                
             tokens.tokens.append(token)
 
             last_line = current_line
@@ -263,13 +285,40 @@ class Lexer:
 
     def strip_line_from_comments(self, line_content: str) -> str:
         """
-        Stip the line from comments.
+        Stip the line from comments and new line escape character.
         """
-        for i, char in enumerate(line_content):
-            if char == "/" and line_content[i+1] == "/":
-                return line_content[:i]
-        
-        return line_content
+        in_string = False
+        escaped = False
+        result = []
+
+        i = 0
+        while i < len(line_content):
+            char = line_content[i]
+
+            # Handle escape characters
+            if char == "\\" and not escaped:
+                escaped = True
+                result.append(char)
+                i += 1
+                continue
+
+            # Toggle string context
+            if char == '"' and not escaped:
+                in_string = not in_string
+
+            # Handle comment only if we're not in a string
+            if not in_string and char == "/" and i + 1 < len(line_content) and line_content[i + 1] == "/":
+                break  # Stop here — comment starts
+
+            result.append(char)
+            escaped = False
+            i += 1
+
+        # Join and strip trailing whitespace
+        clean_line = ''.join(result).rstrip(" \t\r\n")
+
+        return clean_line + "\n"
+
     
     def is_last_token_const(self, token: dict, index: int | None = -1) -> bool:
         """
@@ -323,6 +372,14 @@ class Lexer:
 
         return list(last_token.items())[0][0] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]
     
+    def is_last_token_syscall(self, token: dict, index: int | None = -1) -> bool:
+        """
+        Is the last token a syscall.
+        """
+        last_token = token.tokens[index]
+
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] and list(last_token.items())[0][1] == KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]
+    
     def is_line_context_op(self, token: Token) -> bool:
         """
         Is the line context a mathematical operation (mul, div, sub, add)
@@ -344,12 +401,19 @@ class Lexer:
         """
         return self.is_last_token_var(token=token, index=0)
     
+    def is_line_context_syscall(self, token: Token) -> bool:
+        """
+        Is the current line context a syscall.
+        """
+        return self.is_last_token_syscall(token=token, index=0)
+
     def parse_constant_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> list:
         """
         Parse constant declaration elements: identifier, size, type, value.
         """
         elements = list()
-
+        
+        default_dynamic_size = 8   # 8 byte for 64 bit
         if self.is_line_context_const(token=token):
             line_content = line_content[current_index+1:]   # Ignore the 'const' keyword
             line_content = self.strip_line_from_comments(line_content=line_content)
@@ -426,7 +490,7 @@ class Lexer:
                             # Check if no size was given, meaning dynamic size
                             if len(elements) == 1:  # DO NOT CHANGE THIS PLS
                                 elements.append(
-                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: 0}
+                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: default_dynamic_size}
                                 )
                             
                             elements.append(
@@ -446,42 +510,32 @@ class Lexer:
                     
                 # Constant value
                 if char == "=":
-                    sequence = line_content[i+1:]
+                    sequence = line_content[i + 1:]
 
                     value = ""
-                    string_char = None   # Track single quotes and double quotes for string literals
-                    in_string = False    # If our current position is inside of a string literal
+                    string_char = None
+                    in_string = False
+
                     for x, value_char in enumerate(sequence):
-                        # Handle string start/end
+                        # Start or end of string
                         if value_char in {'"', "'"}:
                             if not in_string:
                                 in_string = True
-                                string_char = char
-                            elif string_char == char:
-                                in_string = False  # closing the string
+                                string_char = value_char
+                            elif value_char == string_char:
+                                in_string = False
 
-                        # Stop at semicolon or EOF (in case no semicolon was present at the EOL)
-                        # only if not inside a string
-                        if value_char == ';' or value_char == "\n" and not in_string:
-                            # Append the value to the elements
-                            elements.append(
-                                {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}
-                            )
-
-                            # Append the semicolon in case it is present
-                            if value_char == ";":
-                                elements.append(
-                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
-                                )
+                        # End of value — only if NOT in a string
+                        if not in_string and (value_char == ';' or value_char == '\n'):
+                            elements.append({TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value.strip()})
                             
-                            value = ""
+                            # Append the semicolon if it's present
+                            if value_char == ";":
+                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
                             break
 
-                        if value_char == " ":
-                            continue
-
                         value += value_char
-
+                    
                 # Break the loop in case all elements are lexed
                 if len(elements) in [4, 5]:
                     break
@@ -497,10 +551,10 @@ class Lexer:
         """
         elements = list()
 
+        default_dynamic_size = 8   # 8 byte for 64 bit
         if self.is_line_context_var(token=token):
             line_content = line_content[current_index+1:]   # Ignore the 'const' keyword
             line_content = self.strip_line_from_comments(line_content=line_content)
-            
             word = ""
 
             is_size_context = False     # Mark True when we encounter '['
@@ -574,14 +628,14 @@ class Lexer:
                             # Check if no size was given, meaning dynamic size
                             if len(elements) == 1:  # DO NOT CHANGE THIS PLS
                                 elements.append(
-                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: 0}
+                                    {LITERALS_SYNTAX_MAP[DYNAMIC_SIZE_LITERAL]: default_dynamic_size}
                                 )
                             
                             elements.append(
                                 {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: typ}
                             )
 
-                            if type_char == ";" and sequence[x+1:x+3] == "\n":
+                            if type_char == ";" and sequence[x+1:x+2] == "\n":
                                 elements.append(
                                     {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
                                 )
@@ -636,6 +690,8 @@ class Lexer:
 
                         value += value_char
                 
+                # if char == ";" and list(elements[-1].items())[0] == TOKENS_SYNTAX_MAP[TYPE_TOKEN]:
+
                 # Break the loop in case all elements are lexed
                 if len(elements) in [4, 5]:
                     break
@@ -715,6 +771,80 @@ class Lexer:
 
         return elements, skip_indexes_list
 
+    def parse_syscall_elements(self,  token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token) -> dict:
+        """
+        Parse syscall elements.
+        """
+        elements = list()
+
+        max_syscall_idx = 456   # Source: https://filippo.io/linux-syscall-table/
+        max_syscall_regs_n = 6
+        
+        if self.is_line_context_syscall(token=token):
+            line_content = line_content[current_index+1:]
+            line_content = self.strip_line_from_comments(line_content=line_content)
+            line_content = line_content.split(",")
+
+            # syscall number
+            syscall_number = line_content[0]
+            if not self.is_seq_char_int(seq_char=syscall_number):
+                print(f"[bold red][ERROR][reset]: The syscall number should be an integer not a string, in line '{token.line.line_number}'.")
+                sys.exit(1)
+
+            # The given syscall number is higher then 'max_syscall_idx'
+            if int(syscall_number) > max_syscall_idx:
+                print(f"[bold red][ERROR][reset]: Invalid syscall number, in line '{token.line.line_number}'")
+                sys.exit(1)
+            
+            elements.append(
+                {LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: int(syscall_number)}
+            )
+            
+            # Registers value
+            regs_values = line_content[1:-1]
+
+            # Handle too many arguments passed
+            if len(regs_values) > max_syscall_regs_n:
+                print(f"[bold red][ERROR][reset]: syscall only supports up to 6 arguments (found 8), in line '{token.line.line_number}'.")
+                sys.exit(1)
+            
+            for reg_value in regs_values:
+                element = None
+                reg_value = reg_value.strip()
+
+                if self.is_seq_char_int(seq_char=reg_value):
+                    element = {
+                        LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: int(reg_value)
+                    }
+                elif self.is_seq_char_float(seq_char=reg_value):
+                    element = {
+                        LITERALS_SYNTAX_MAP[FLOAT_LITERAL]: float(reg_value)
+                    }
+                else:
+                    element = {
+                        LITERALS_SYNTAX_MAP[STRING_LITERAL]: reg_value
+                    }
+
+                elements.append(element)
+
+            # Error identifier
+            error_identifier = line_content[-1]
+            error_identifier = error_identifier.strip()
+
+            if error_identifier[-1] == ";" or error_identifier[-2:] == ";\n":
+                elements.append(
+                    {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: error_identifier[:-1].strip()}
+                )
+                elements.append(
+                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                )
+            else:
+                elements.append(
+                    {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: error_identifier}
+                )
+        
+        return elements
+
     def check_value_type(self, _type: str, value: str) -> bool:
         """
         Check if the value of a constant/variable correspond to the type.
@@ -747,6 +877,61 @@ class Lexer:
         else:
             return None
 
+    def escape_spaces_at_zero_idx(self, seq_char: str) -> str:
+        """
+        Escape spaces at index zero in sequence of characters.
+        """
+        def strip_space(seq_char: str) -> str:
+            x = ""
+            for char in seq_char:
+                if char == " " and len(x) == 0:
+                    continue
+
+                x += char
+            
+            return x
+
+        clean_seq_char = ""
+
+        # From right-to-left
+        right_seq_char = strip_space(seq_char=seq_char)
+        
+        # From left-to-right
+        left_seq_char = strip_space(seq_char=right_seq_char[::-1])
+
+        clean_seq_char = left_seq_char[::-1]
+
+        return clean_seq_char
+     
+    def is_seq_char_int(self, seq_char: str) -> bool:
+        """
+        Check if a sequence of characters
+        is actualy an integer
+        """
+        try:
+            int(seq_char)
+            return True
+        except:
+            return False
+    
+    def is_seq_char_float(self, seq_char: str) -> bool:
+        """
+        Check if a sequence of characters
+        is actually a float.
+        """
+        try:
+            float(data)
+            # If data is a number it can be both
+            # an int and a float, so eliminate this
+            # by checking if the string representation 
+            # of the data contains a '.' which is only
+            # found in floats.
+            if "." not in str(data):
+                return False
+            return True
+        except:
+            return False
+        
     def get_size_of_obj(self, obj, seen=None) -> int:
         """
         Recursively find the true size of an object including its references
