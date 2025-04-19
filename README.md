@@ -63,6 +63,17 @@ div (x, y) into div_res;     // Division
 sub (x, y) into sub_res;     // Subtraction
 ```
 
+* ## Pointers
+
+
+to create a pointer, you can use the `ptr` keyword:
+
+```
+ptr x: int;
+```
+
+All pointers are zero-initialized by default. Pointers don't accept size.
+
 * ## Direct syscalls
 
 ManV provides a keyword called `syscall` which you can use to directly make syscalls.
@@ -74,12 +85,13 @@ syscall $RAX, $RSI, $RDI, ..., $ERR;
 ```
 
 An example usage, this is a simple call to sys_exit:
+
 ```
+const SYS_EXIT: int = 60;   // sys_exit
+const EXIT_OK: int = 0;     // Exit code 0
+var errno: int;             // Error reporting
 
-const EXIT_OK: int = 0; // Exit code 0
-var errno: int;         // Error reporting
-
-syscall 60, EXIT_OK, errno;
+syscall SYS_EXIT, EXIT_OK, errno;
 
 ```
 
