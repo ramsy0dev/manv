@@ -2,12 +2,16 @@
 // File: examples/hello-world.mv
 // Description: Simple hello world
 
-const data: str = "Hello World!";
-const data_len: int = 12;
+ptr data: str = "Hello World!";
+const data_len: int = 13;
+
+
+const SYS_WRITE: int = 1;
+const STDOUT: int = 1;
 
 var ERRNO: int;
 
 
 // syscall to sys_write
-syscall 1, 1, data, data_len, ERRNO;
+syscall SYS_WRITE, STDOUT, data, data_len, ERRNO;
 
