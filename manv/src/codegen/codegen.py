@@ -28,6 +28,12 @@ import sys
 import random
 from rich import print
 
+# Utils
+from manv.utils import (
+    random_ascii_str,
+    random_int
+)
+
 # Base
 from manv.src.ast.base import ASTNode
 
@@ -43,6 +49,7 @@ from manv.src.builtin.literals import *
 # Builtin Types
 from manv.src.builtin.types import *
 
+# ASM class
 from manv.src.codegen.asm import *
 
 # Sections
@@ -74,6 +81,8 @@ class Codegen:
         """
         Generate assembly code based on the program's AST tree.
         """
+        self.program = program
+
         self.asm.add_to_section(
             section=TEXT_SECTION,
             label=MAIN_FUNC_LABEL,
@@ -107,10 +116,16 @@ class Codegen:
         """
         # Constant declaration
         if isinstance(statement, Constant):
+            asm_code = None
+            if isinstance(statement.typ, (CharType, StrType)): # Use 'db'
+                asm_code = "\t" + f"{statement.identifier.name} db {statement.value.value}, 0\n"
+            else:   # Use 'dq'
+                asm_code = "\t" + f"{statement.identifier.name} dq {statement.value.value}\n"
+            
             self.asm.add_to_section(
                 section=DATA_SECTION,
                 label=statement.identifier.name + "_const",
-                code=f"{statement.identifier.name} {'db'  if isinstance(statement.typ, (CharType, StrType)) else 'dq'} {statement.value.value}\n"
+                code=asm_code
             )
 
         # Variable declaration
@@ -125,16 +140,35 @@ class Codegen:
             else:
                 section = DATA_SECTION
                 if isinstance(statement.typ, (CharType, StrType)): # Use 'db'
-                    asm_code = "\t" + f"{statement.identifier.name} db {statement.value.value}"
+                    asm_code = "\t" + f"{statement.identifier.name} db {statement.value.value}, 0xA\n"
                 else:   # Use 'dq'
-                    asm_code = "\t" + f"{statement.identifier.name} dq {statement.value.value}"
+                    asm_code = "\t" + f"{statement.identifier.name} dq {statement.value.value}\n"
             
             self.asm.add_to_section(
                 section=section,
                 label=statement.identifier.name + "_var",
                 code=asm_code
             )
-    
+
+        # Pointer declaration
+        if isinstance(statement, Pointer):
+            label = f"{statement.identifier.name}_ptr_{random_int()+random_int()}"
+            value_identifier = f"{random_ascii_str(len=6)}"
+
+            # Declare the pointer and the value
+            data_sec_asm_code = ""
+
+            if isinstance(statement.typ, (CharType, StrType)): # Use 'db'
+                data_sec_asm_code = "\t" + f"{statement.identifier.name} db {statement.value.value}, 0xA\n"
+            else:   # Use 'dq'
+                data_sec_asm_code = "\t" + f"{statement.identifier.name} dq {statement.value.value}\n"
+            
+            self.asm.add_to_section(
+                section=DATA_SECTION,
+                label=label,
+                code=data_sec_asm_code
+            )
+
         # Operations
         if isinstance(statement, (MultiplyOp, DivideOp, AdditionOp, SubtractionOp)):
             asm_code = list()
@@ -171,13 +205,6 @@ class Codegen:
                 asm_code.append(
                     "\t" + f"mov [{statement.assign.identifier.name}], {regs[0]}\n"
                 )
-
-                # asm_code.append(
-                #     "\t" + f"mov rax, [{statement.assign.identifier.name}]\n"
-                # )
-                # asm_code.append(
-                #     "\t" + f"call printi\n"
-                # )
             elif isinstance(statement, DivideOp):
                 regs = ["rax", "rdx", "rcx"]
                 left = None
@@ -301,19 +328,39 @@ class Codegen:
                 section=TEXT_SECTION,
                 label=label,
                 code=[
-                    "\t" + f"mov rax, {syscall_number}\n",
+                    ("\t" + f"mov rax, {syscall_number}\n" if not isinstance(syscall_number, Identifier) else "\t" + f"mov rax, [{syscall_number.name}]\n"),
                 ]
             )
             
             # Move arguments value into the registers
             for i, arg in enumerate(args):
-                self.asm.add_to_section(
-                    section=TEXT_SECTION,
-                    label=label,
-                    code=[
-                        "\t" + f"mov {syscall_regs_list[i]}, {arg}\n"
-                    ]
-                )
+                # Derefrence by default all variables, constants
+                # except pointers unless the derefrencing symbol '*'
+                # is given before the pointer's identifier.
+                if isinstance(arg, DereferencePointer):
+                    self.asm.add_to_section(
+                        section=TEXT_SECTION,
+                        label=label,
+                        code=[
+                            "\t" + f"mov {syscall_regs_list[i]}, [{arg.identifier.name}]\n"
+                        ]
+                    )
+                elif arg in self.program.const_identifiers + self.program.var_identifiers:
+                    self.asm.add_to_section(
+                        section=TEXT_SECTION,
+                        label=label,
+                        code=[
+                            "\t" + f"mov {syscall_regs_list[i]}, [{arg}]\n"
+                        ]
+                    )
+                else:
+                    self.asm.add_to_section(
+                        section=TEXT_SECTION,
+                        label=label,
+                        code=[
+                            "\t" + f"mov {syscall_regs_list[i]}, {arg}\n"
+                        ]
+                    )
             
             # Call syscall
             self.asm.add_to_section(

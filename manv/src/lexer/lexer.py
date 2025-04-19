@@ -54,6 +54,10 @@ class Tokens:
     file_path: str | None = None
     lines_count: int  = 0
     tokens: list[Token] = list()
+    const_identifiers: list[str] = list()
+    var_identifiers: list[str] = list()
+    ptr_identifiers: list[str] = list()
+    functions_identifiers: list[str] = list()
 
     def __init__(self, file_path: str | None = None) -> None:
         self.file_path = file_path
@@ -189,7 +193,13 @@ class Lexer:
                         token.tokens.append(
                             tok
                         )
- 
+
+                        # Save the constant identifier
+                        if list(tok.items())[0][0] == TOKENS_SYNTAX_MAP[WORD_TOKEN]:
+                            tokens.const_identifiers.append(
+                                list(tok.items())[0][1]
+                            )
+                    
                     token_construct = ""
                     break
                 
@@ -207,10 +217,41 @@ class Lexer:
 
                     for tok in var_declaration:
                         token.tokens.append(tok)
+
+                        # Save the variable identifier
+                        if list(tok.items())[0][0] == TOKENS_SYNTAX_MAP[WORD_TOKEN]:
+                            tokens.var_identifiers.append(
+                                list(tok.items())[0][1]
+                            )
+                        
                     
                     token_construct = ""
                     break
+                
+                # Keyword: PTR_KEYWORD
+                if token_construct == "ptr":
+                    token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] :  KEYWORDS_SYNTAX_MAP[PTR_KEYWORD]})
 
+                    ptr_declaration = self.parse_pointer_declaration(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    for tok in ptr_declaration:
+                        token.tokens.append(tok)
+
+                        # Save the pointer identifier
+                        if list(tok.items())[0][0] == TOKENS_SYNTAX_MAP[WORD_TOKEN]:
+                            tokens.ptr_identifiers.append(
+                                list(tok.items())[0][1]
+                            )
+                        
+                    token_construct = ""
+                    break
+            
                 # Keyword: SIZE_INC_KEYWORD
                 if token_construct == "size_inc":
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_INC_KEYWORD]})
@@ -372,6 +413,14 @@ class Lexer:
 
         return list(last_token.items())[0][0] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]
     
+    def is_last_token_ptr(self, token: dict, index: int | None = -1) -> bool:
+        """
+        Is the last token a ptr.
+        """
+        last_token = token.tokens[index]
+
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] and list(last_token.items())[0][1] == KEYWORDS_SYNTAX_MAP[PTR_KEYWORD]
+
     def is_last_token_syscall(self, token: dict, index: int | None = -1) -> bool:
         """
         Is the last token a syscall.
@@ -380,6 +429,7 @@ class Lexer:
 
         return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] and list(last_token.items())[0][1] == KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]
     
+
     def is_line_context_op(self, token: Token) -> bool:
         """
         Is the line context a mathematical operation (mul, div, sub, add)
@@ -400,6 +450,12 @@ class Lexer:
         Is the current line context a variable declaration keyword.
         """
         return self.is_last_token_var(token=token, index=0)
+    
+    def is_line_context_ptr(self, token: Token) -> bool:
+        """
+        Is the current line context a pointer declaration keyword.
+        """
+        return self.is_last_token_ptr(token=token, index=0)
     
     def is_line_context_syscall(self, token: Token) -> bool:
         """
@@ -547,7 +603,7 @@ class Lexer:
     
     def parse_variable_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
         """
-        Pase the variable declaration elements.
+        Parse the variable declaration elements.
         """
         elements = list()
 
@@ -654,49 +710,142 @@ class Lexer:
                 
                 # Variable value
                 if char == "=":
-                    sequence = line_content[i+1:]
+                    sequence = line_content[i + 1:]
 
                     value = ""
-                    string_char = None   # Track single quotes and double quotes for string literals
-                    in_string = False    # If our current position is inside of a string literal
+                    string_char = None
+                    in_string = False
+
                     for x, value_char in enumerate(sequence):
-                        # Handle string start/end
-                        if value_char in ['"', "'"]:
+                        # Start or end of string
+                        if value_char in {'"', "'"}:
                             if not in_string:
                                 in_string = True
                                 string_char = value_char
-                            elif string_char == value_char:
-                                in_string = False  # closing the string
+                            elif value_char == string_char:
+                                in_string = False
 
-                        # Stop at semicolon or EOF (in case no semicolon was present at the EOL)
-                        # only if not inside a string
-                        if (value_char == ';' or value_char == "\n") and not in_string:
-                            # Append the value to the elements
-                            elements.append(
-                                {TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value}
-                            )
-
-                            # Append the semicolon in case it is present
-                            if value_char == ";":
-                                elements.append(
-                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
-                                )
+                        # End of value — only if NOT in a string
+                        if not in_string and (value_char == ';' or value_char == '\n'):
+                            elements.append({TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value.strip()})
                             
-                            value = ""
+                            # Append the semicolon if it's present
+                            if value_char == ";":
+                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
                             break
 
-                        if value_char == " ":
-                            continue
-
                         value += value_char
-                
-                # if char == ";" and list(elements[-1].items())[0] == TOKENS_SYNTAX_MAP[TYPE_TOKEN]:
 
                 # Break the loop in case all elements are lexed
                 if len(elements) in [4, 5]:
                     break
 
                 if char not in [" ", "[", "]", ":"]:
+                    word += char
+        
+        return elements
+
+    def parse_pointer_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> tuple[dict, list[int]]:
+        """
+        Parse a pointer declaration elements.
+        """
+        elements = list()
+
+        if self.is_line_context_ptr(token=token):
+            line_content = line_content[current_index+1:]   # Ignore the 'const' keyword
+            line_content = self.strip_line_from_comments(line_content=line_content)
+            word = ""
+
+            is_size_context = False     # Mark True when we encounter '['
+                                        # Because that will be the start
+                                        # of the constant's size
+            for i, char in enumerate(line_content):
+                next_char = None
+                last_char = None
+                
+                if (i + 1) < len(line_content):
+                    next_char = line_content[i+1]
+                if (i - 1) >= 0:
+                    last_char = line_content[i-1]
+
+                # Ignore spaces
+                if char == " ":
+                    continue
+
+                # Pointer identifier
+                #        x: or x[...]:        |        x :  or x [...]:
+                if char in [":", "["] and len(elements) == 0: # Add length so we won't be adding everything
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[WORD_TOKEN]: word}
+                    )
+                    
+                    # Size context
+                    if char == "[":
+                        is_size_context = True
+
+                    word = ""
+
+                # Pointer type
+                if char == ":":
+                    sequence = line_content[i+1:]
+
+                    typ = ""
+                    for x, type_char in enumerate(sequence):
+                        if type_char in ["=", ";", "\n"]:                       
+                            elements.append(
+                                {TOKENS_SYNTAX_MAP[TYPE_TOKEN]: typ}
+                            )
+
+                            if type_char == ";" and sequence[x+1:x+2] == "\n":
+                                elements.append(
+                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                )
+                                
+                            typ = ""
+
+                            break
+
+                        # Ignore the spaces between ':' and the actual type
+                        # :   int   =
+                        #  ^^^   ^^^   <- Ignore them
+                        if type_char == " ":
+                            continue
+
+                        typ += type_char
+                
+                # Pointer value
+                if char == "=":
+                    sequence = line_content[i + 1:]
+
+                    value = ""
+                    string_char = None
+                    in_string = False
+
+                    for x, value_char in enumerate(sequence):
+                        # Start or end of string
+                        if value_char in {'"', "'"}:
+                            if not in_string:
+                                in_string = True
+                                string_char = value_char
+                            elif value_char == string_char:
+                                in_string = False
+
+                        # End of value — only if NOT in a string
+                        if not in_string and (value_char == ';' or value_char == '\n'):
+                            elements.append({TOKENS_SYNTAX_MAP[VALUE_TOKEN]: value.strip()})
+                            
+                            # Append the semicolon if it's present
+                            if value_char == ";":
+                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                            break
+
+                        value += value_char
+
+                # Break the loop in case all elements are lexed
+                if len(elements) in [3, 4]:
+                    break
+
+                if char not in [" ", ":"]:
                     word += char
         
         return elements
@@ -788,17 +937,18 @@ class Lexer:
             # syscall number
             syscall_number = line_content[0]
             if not self.is_seq_char_int(seq_char=syscall_number):
-                print(f"[bold red][ERROR][reset]: The syscall number should be an integer not a string, in line '{token.line.line_number}'.")
-                sys.exit(1)
-
-            # The given syscall number is higher then 'max_syscall_idx'
-            if int(syscall_number) > max_syscall_idx:
-                print(f"[bold red][ERROR][reset]: Invalid syscall number, in line '{token.line.line_number}'")
-                sys.exit(1)
-            
-            elements.append(
-                {LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: int(syscall_number)}
-            )
+                elements.append(
+                    {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: syscall_number.strip()}
+                )
+            else:
+                # The given syscall number is higher then 'max_syscall_idx'
+                if int(syscall_number) > max_syscall_idx:
+                    print(f"[bold red][ERROR][reset]: Invalid syscall number, in line '{token.line.line_number}'")
+                    sys.exit(1)
+                
+                elements.append(
+                    {LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: int(syscall_number)}
+                )
             
             # Registers value
             regs_values = line_content[1:-1]
@@ -812,6 +962,13 @@ class Lexer:
                 element = None
                 reg_value = reg_value.strip()
 
+                if reg_value.startswith("*"):
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[DEREFERENCE_PTR_TOKEN]: "*"}
+                    )
+                
+                    reg_value = reg_value[1:]
+                
                 if self.is_seq_char_int(seq_char=reg_value):
                     element = {
                         LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: int(reg_value)

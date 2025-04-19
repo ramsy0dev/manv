@@ -39,6 +39,7 @@ SUB_KEYWORD = iota.new()  # Substitution
 # ------------------------------------- #
 CONST_KEYWORD       =   iota.new()  # Declare a constant
 VAR_KEYWORD         =   iota.new()  # Declare a variable
+PTR_KEYWORD         =   iota.new()  # Declare a pointer
 SIZE_INC_KEYWORD    =   iota.new()  # Increase the size of a variable
 SIZE_DEC_KEYWORD    =   iota.new()  # Decrease the size of a variable
 EMT_KEYWORD         =   iota.new()  # Empty a variable from its value
@@ -61,6 +62,7 @@ WORD_TOKEN = iota.new()# Reperesents any kind a instruction that doesn't use any
 IDENTIFIER_TOKEN = iota.new()  # Name of a variable, constants, function, structure...
 TYPE_TOKEN = iota.new()  # Type literal
 VALUE_TOKEN = iota.new()  # Representing constant, variable... value
+DEREFERENCE_PTR_TOKEN = iota.new()
 COMMENT_TOKEN = iota.new()
 
 # Literals
@@ -140,6 +142,7 @@ TOKENS_SYNTAX_MAP: dict[int, str] = {
     IDENTIFIER_TOKEN: "IDENTIFIER_TOKEN",
     TYPE_TOKEN: "TYPE_TOKEN",
     VALUE_TOKEN: "VALUE_TOKEN",
+    DEREFERENCE_PTR_TOKEN: "DEREFERENCE_PTR_TOKEN",
     COMMENT_TOKEN: "COMMENT_TOKEN"
 }
 
@@ -147,6 +150,7 @@ TOKENS_SYNTAX_MAP: dict[int, str] = {
 KEYWORDS_SYNTAX_MAP: dict[int, str] = {
     MUL_KEYWORD: "MUL_KEYWORD",
     ADD_KEYWORD: "ADD_KEYWORD",
+    PTR_KEYWORD: "PTR_KEYWORD",
     DIV_KEYWORD: "DIV_KEYWORD",
     SUB_KEYWORD: "SUB_KEYWORD",
     CONST_KEYWORD: "CONST_KEYWORD",
@@ -167,6 +171,7 @@ KEYWORDS: dict[int, str] = {
     SUB_KEYWORD: "sub",
     CONST_KEYWORD: "const",
     VAR_KEYWORD: "var",
+    PTR_KEYWORD: "ptr",
     SIZE_INC_KEYWORD: "size_inc",
     SIZE_DEC_KEYWORD: "size_inc",
     EMT_KEYWORD: "emt",

@@ -32,6 +32,9 @@ __all__ = [
     "CallConstant",
     "Constant",
     "Variable",
+    "MemoryAddress",
+    "Pointer",
+    "DereferencePointer",
     "MultiplyOp",
     "AdditionOp",
     "DivideOp",
@@ -82,6 +85,21 @@ class Variable(ASTNode):
     typ: Type
     value: ASTNode
     line: LineModel
+
+@dataclass
+class MemoryAddress(ASTNode):
+    value: str
+
+@dataclass
+class Pointer(ASTNode):
+    identifier: Identifier
+    typ: Type
+    value: MemoryAddress
+    line: LineModel
+
+@dataclass
+class DereferencePointer(ASTNode):
+    identifier: Identifier
 
 @dataclass
 class Return(ASTNode):
@@ -161,13 +179,17 @@ class SubtractionOp(ASTNode):
 # Syscall
 @dataclass
 class Syscall(ASTNode):
-    syscall_number: int
+    syscall_number: Identifier | int
     args: List
     error: Identifier
 
 @dataclass
 class Program(ASTNode):
     statements: List[ASTNode]
+    const_identifiers: List[str]
+    var_identifiers: List[str]
+    ptr_identifiers: List[str]
+    functions_identifiers: List[str]
 
     def __init__(self) -> None:
         self.statements = list()

@@ -138,10 +138,40 @@ class Parser:
 
                     program.statements.append(var_declaration)
                 
+                # Keyword: ptr
+                if keyword == KEYWORDS_SYNTAX_MAP[PTR_KEYWORD]:
+                    ptr_identifier = list(line_tokens[1].items())[0][1]
+                    ptr_type = list(line_tokens[2].items())[0][1]
+                    ptr_value = None
+
+                    # The value of the pointer can be None
+                    # in that case it will be 0 initialized
+                    if list(line_tokens[3].items())[0][0] == TOKENS_SYNTAX_MAP[VALUE_TOKEN]:
+                        ptr_value = list(line_tokens[3].items())[0][1]
+                    else:
+                        # 0 initialized pointer
+                        ptr_value = 0
+
+                    ptr_declaration = Pointer(
+                        identifier=Identifier(
+                            name=ptr_identifier,
+                        ),
+                        typ=BUILTIN_TYPES[ptr_type](),
+                        value=MemoryAddress(
+                            value=ptr_value
+                        ),
+                        line=current_line
+                    )
+
+                    program.statements.append(ptr_declaration)
+                
                 # Operations keywords (mul, div, add, sub)
-                op_keywords = list()
-                for pair in list(KEYWORDS_SYNTAX_MAP.items())[:4]:
-                    op_keywords.append(pair[1])
+                op_keywords = [
+                    KEYWORDS[MUL_KEYWORD],
+                    KEYWORDS[ADD_KEYWORD],
+                    KEYWORDS[SUB_KEYWORD],
+                    KEYWORDS[DIV_KEYWORD]
+                ]
 
                 if keyword in op_keywords:
                     left_element = list(line_tokens[1].items())[0][1]
@@ -167,7 +197,6 @@ class Parser:
                             right_element_literal = NumberLiteral
                     
                     result_var_identifier = list(line_tokens[4].items())[0][1]
-
 
                     op_class = None
                     match keyword:
@@ -200,7 +229,26 @@ class Parser:
                     syscall_args = list()
                     error_identifier = list(line_tokens[-2].items())[0][1]
 
+                    if list(line_tokens[1].items())[0][0] == TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]:
+                        syscall_number = Identifier(name=syscall_number)
+                    
+                    is_dereference = False
                     for syscall_arg in line_tokens[2:-2]:
+                        if list(syscall_arg.items())[0][0] == TOKENS_SYNTAX_MAP[DEREFERENCE_PTR_TOKEN]:
+                            is_dereference = True
+                            continue
+                        
+                        if is_dereference:
+                            syscall_args.append(
+                                DereferencePointer(
+                                    identifier=Identifier(
+                                        name=list(syscall_arg.items())[0][1]
+                                    )
+                                )
+                            )
+                            is_dereference = False
+                            continue
+                        
                         syscall_args.append(
                             list(syscall_arg.items())[0][1]
                         )
@@ -214,6 +262,11 @@ class Parser:
                     program.statements.append(syscall)
                 
             last_line = current_line
+        
+        program.const_identifiers       = tokens.const_identifiers
+        program.var_identifiers         = tokens.var_identifiers
+        program.ptr_identifiers         = tokens.ptr_identifiers
+        program.functions_identifiers   = tokens.functions_identifiers
 
         return program
     
