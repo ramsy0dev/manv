@@ -22,11 +22,16 @@
 
 __all__ = [
     "get_platform",
-    "create_path"
+    "create_path",
+    "random_ascii_str",
+    "random_int",
+    "iota"
 ]
 
 import os
 import sys
+import string
+import random
 
 from rich import print
 from pathlib import Path
@@ -38,6 +43,8 @@ PL_LINUX   = 0x02
 # Defines
 def get_platform() -> str: ...
 def create_path(path: str) -> str: ...
+def random_ascii_str(len: int | None = 1) -> str: ...
+def random_int(int_range: tuple[int, int] | None = (999, 9999)) -> str: ...
 
 class iota: ...
 
@@ -85,6 +92,23 @@ def create_path(path: str) -> str:
         last_dir += slash + dirs[i]
     
     return last_dir
+
+
+def random_ascii_str(len: int | None = 1) -> str:
+    """
+    Generate a random ascii string sequence.
+    """    
+    ascii_list = [char for char in string.ascii_lowercase + string.ascii_uppercase]
+
+    ascii_str = random.choices(ascii_list, k=len)
+
+    return ''.join(ascii_str)
+
+def random_int(int_range: tuple[int, int] | None = (999, 9999)) -> str:
+    """
+    Generate a random integer.
+    """
+    return random.choice([i for i in range(int_range[0], int_range[1])])
 
 class iota:
     """
