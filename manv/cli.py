@@ -22,6 +22,7 @@
 
 import sys
 import typer
+import shutil
 import subprocess
 
 from rich import print
@@ -56,8 +57,10 @@ def compile(
             "The directory is searched before the standard system library paths."
         )
     ),
+    run_exec: bool = typer.Option(False, "-r", help="Run the compiled executable binary file."),
     dbg: bool = typer.Option(False, "-dbg", help="Add debug info to the output binary file."),
     threads: int = typer.Option(3, "--threads", help="The number of threads to use."),
+    no_clean: bool = typer.Option(False, "--no-clean", help="Don't delete the generated assembly and object files.")
 ) -> None:
     """
     Compile a manv program source.
@@ -160,12 +163,33 @@ def compile(
         sys.exit(1)
 
     # Cleaning up
-    print("[bold green][INFO][reset]: Cleaning up...")
+    if not no_clean:
+        print("[bold green][INFO][reset]: Cleaning up...")
+        
+        subprocess.run(
+            ["rm", output_asm_file_name, output_object_file_name]
+        )
     
-    subprocess.run(
-        ["rm", output_asm_file_name, output_object_file_name]
-    )
-    
+    # Run the executable
+    if run_exec:
+        print(f"[bold green][INFO][reset]: Running the compiled executable...")
+        print(f"[bold cyan][CMD][reset]: ./{output_binary_file_name}")
+        
+        run_out = subprocess.run(
+            [
+                f"./{output_binary_file_name}"
+            ],
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE
+        )
+
+        print(f"\n[bold white]" + 20 * "-" + "[bold blue] STDOUT [bold white]" + 20 * "-" +"[reset]")
+        print(run_out.stdout.decode())
+        
+        if run_out.stderr.decode() != '':
+            print(f"\n\n[bold white]" + 20 * "-" + "[bold red] STDERR [bold white]" + 20 * "-" +"[reset]", end="\n\n")
+            print(run_out.stderr.decode(), end="\n\n")
+
 @cli.command()
 def build_lexer(
     file_path: Path = typer.Argument(help="The path to the manv script file"),
@@ -192,18 +216,31 @@ def build_lexer(
 
     program_tokens = lexer.generate_tokens(data=file_content, file_path=file_path)
 
-    
     for token in program_tokens.tokens:
         print(
             f"[bold green][INFO][reset]: line '{token.line.line_number}': \n\t{'\n\t'.join([str(i) for i in token.tokens])}"
         )
 
 def run():
-    # Check if platform is not UNIX
+    # Check if the platform is not Linux.
+    # NOTE: there is currently no plan of making ManV
+    # crossplatform until the language is finished or
+    # until it reaches a level where it can be used to
+    # make simple and complexe programs
     if not PLATFORM == PL_LINUX:
         print(
             "[bold red][ERROR][reset]: Platform error, only UNIX platforms are supported."
         )
         sys.exit(1)
 
+    # Check for `nasm`
+    if not shutil.which("nasm"):
+        print(f"[bold red][ERROR][reset]: nasm was not found, please make sure that you have it installed on your system.")
+        sys.exit(1)
+    
+    # Check for `ld`
+    if not shutil.which("ld"):
+        print(f"[bold red][ERROR][reset]: Linker `ld` was not found.")
+        sys.exit(1)
+    
     cli()
