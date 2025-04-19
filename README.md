@@ -8,7 +8,7 @@ ManV is an SCL (Structured Calculations Language) inspired by SQL (Structured Qu
 - [X] Implement Constant/Variable declaration
 - [X] Implement basic math operations (mul, div, add, sub)
 - [X] Implement syscall keyword for interacting the system
-- [ ] Implement a basic pointer
+- [X] Implement a basic pointer
 - [ ] Implement memory manipulation keywords like pop, push...
 - [ ] Implement if-else conditions
 - [ ] Implement while loops
