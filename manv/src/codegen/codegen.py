@@ -58,7 +58,7 @@ DATA_SECTION = "data"
 BSS_SECTION  = "bss"
 
 # Labels
-MAIN_FUNC_LABEL = "_start"
+MAIN_FUNC_LABEL = "main"
 
 # Arguments registers for Unix x86-64
 ARGS_REGISTERS = [
@@ -87,6 +87,11 @@ class Codegen:
             section=TEXT_SECTION,
             code=[
                 "global _start\n",
+                "_start:\n",
+                "\t" + f"call {MAIN_FUNC_LABEL}\n",
+                "\t" + f"mov rax, 60\n",
+                "\t" + f"mov rdi, 0\n",
+                "\t" + f"syscall\n"
             ]
         )
 
@@ -96,17 +101,6 @@ class Codegen:
                 asm_label=MAIN_FUNC_LABEL
             )
 
-        # Exit syscall
-        self.asm.add_to_section(
-            section=TEXT_SECTION,
-            label=MAIN_FUNC_LABEL,
-            code=[
-                "\t" + f"mov rax, 60\n",
-                "\t" + f"mov rdi, 0\n",
-                "\t" + f"syscall\n"
-            ]
-        )
-        
         return self.asm
 
     def process_statement(self, statement: ASTNode, asm_label: str | None = None) -> str:
