@@ -1,0 +1,28 @@
+// Example if-else condition
+
+const STDOUT: int = 1;
+const SYS_WRITE: int = 1;
+const SYS_EXIT: int = 60;
+const EXIT_CODE_OK: int = 0;
+
+var ERRNO: int;
+
+const x: int = 5;
+const y: int = 1;
+
+ptr x_y_are_equal_text: str = "x and y are equal!";
+const x_y_are_equal_len: int = 19;
+
+ptr x_y_are_not_equal_text: str =  "y and y are not equal!";
+const x_y_are_not_equal_len: int = 24;
+
+if (x == y){
+    syscall SYS_WRITE, STDOUT, x_y_are_equal_text, x_y_are_equal_len, ERRNO;
+} else {
+    syscall SYS_WRITE, STDOUT, x_y_are_not_equal_text, x_y_are_not_equal_len, ERRNO;
+}
+
+
+// Exit
+syscall SYS_EXIT, EXIT_CODE_OK, ERRNO;
+
