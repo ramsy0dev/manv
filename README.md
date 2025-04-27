@@ -10,7 +10,7 @@ ManV is an SCL (Structured Calculations Language) inspired by SQL (Structured Qu
 - [X] Implement syscall keyword for interacting the system
 - [X] Implement a basic pointer
 - [ ] Implement memory manipulation keywords like pop, push...
-- [ ] Implement if-else conditions
+- [X] Implement if-else conditions
 - [ ] Implement while loops
 - [ ] Implement functions
 - [ ] Implement the 'include' keyword
@@ -95,3 +95,30 @@ syscall SYS_EXIT, EXIT_OK, errno;
 
 ```
 
+* ## if-else condition
+
+Conditions in ManV work the same in any other language.
+
+```
+// Constants
+const STDOUT: int = 1;
+const SYS_WRITE: int = 1;
+const SYS_EXIT: int = 60;
+const EXIT_CODE_OK: int = 0;
+
+var ERRNO: int; // Error handler
+
+// Log messages
+ptr are_equal_text: str = "equal!";
+const are_equal_len: int = 7;
+
+ptr are_not_equal_text: str =  "not equal!";
+const are_not_equal_len: int = 11;
+
+if (10 == 5) {
+    syscall SYS_WRITE, STDOUT, are_equal_text, are_equal_len, ERRNO;
+} else {
+    syscall SYS_WRITE, STDOUT, are_not_equal_text, are_not_equal_len, ERRNO;
+}
+
+```
