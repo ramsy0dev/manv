@@ -23,7 +23,6 @@
 __all__ = [
     "ASM",
 ]
-
 class ASM:
     """
     ASM object for holding the generated assembly
@@ -33,7 +32,10 @@ class ASM:
         self.section_bss: dict[str, list[str]] = {}
         self.section_text: dict[str, list[str]] = {}
 
-    def add_to_section(self, section: str, label: str, code: list[str] | str):
+        self.no_label_instructions = "no_label"  # This label used for instructions suchs as, 'global', 'extern' ...
+        
+
+    def add_to_section(self, section: str, code: list[str] | str,  label: str | None = None):
         """
         Add code to a specific section under a named label (block).
         """
@@ -46,17 +48,21 @@ class ASM:
         if target is None:
             raise ValueError(f"Unknown section: {section}")
 
-        if label not in target:
+        if label is not None and label not in target:
             target[label] = []
+        elif label is None:
+            label = self.no_label_instructions   # Set the label to 'no_label'
+            
+            if label not in target:
+                target[label] = []
 
         if isinstance(code, str):
-            target[label].append(code)
+            if code:
+                target[label].append(code)
         elif isinstance(code, list):
             for line in code:
-                if len(line) == 0:
-                    continue
-                
-                target[label].append(line)
+                if line:
+                    target[label].append(line)
 
     def get_assembly(self) -> str:
         """
@@ -67,9 +73,19 @@ class ASM:
                 return ""
             result = f"section .{section_name}\n"
             for label, lines in section_dict.items():
-                result += f"\n; -- {label} --\n"
-                for line in lines:
-                    result += line
+                if not lines:
+                    continue
+                
+                if label == self.no_label_instructions:
+                    result += ''.join(lines)
+                    continue
+            
+                if ":" not in label:
+                    label += ":"
+                
+                result += label + "\n"
+                result += ''.join(lines)
+            
             return result
 
         return (

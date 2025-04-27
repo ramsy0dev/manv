@@ -46,6 +46,8 @@ EMT_KEYWORD         =   iota.new()  # Empty a variable from its value
 DEL_KEYWORD         =   iota.new()  # Delete a variable/constant from memory.
 INTO_KEYWORD        =   iota.new()  # Direct result into a variable.
 SYSCALL_KEYWORD     =   iota.new()  # Make syscall
+IF_KEYWORD          = iota.new()
+ELSE_KEYWORD        = iota.new()
 COMMENT_KEYWORD     =   iota.new()  # The double forward-slash for comments
 
 # Builtin types
@@ -57,13 +59,24 @@ BOOL_TRUE_TYPE = iota.new()
 BOOL_FALSE_TYPE = iota.new()
 
 # Token type
-KEYWORD_TOKEN = iota.new()  # Represents a language keyword.
-WORD_TOKEN = iota.new()# Reperesents any kind a instruction that doesn't use any of the language's keyword.
-IDENTIFIER_TOKEN = iota.new()  # Name of a variable, constants, function, structure...
-TYPE_TOKEN = iota.new()  # Type literal
-VALUE_TOKEN = iota.new()  # Representing constant, variable... value
-DEREFERENCE_PTR_TOKEN = iota.new()
-COMMENT_TOKEN = iota.new()
+KEYWORD_TOKEN               = iota.new()  # Represents a language keyword.
+WORD_TOKEN                  = iota.new()  # Reperesents any kind a instruction that doesn't use any of the language's keyword.
+SYMBOL_TOKEN                = iota.new()
+IDENTIFIER_TOKEN            = iota.new()  # Name of a variable, constants, function, structure...
+TYPE_TOKEN                  = iota.new()  # Type literal
+VALUE_TOKEN                 = iota.new()  # Representing constant, variable... value
+DEREFERENCE_PTR_TOKEN       = iota.new()
+CONST_IDENTIFIER_TOKEN      = iota.new()
+VAR_IDENTIFIER_TOKEN        = iota.new()
+PTR_IDENTIFIER_TOKEN        = iota.new()
+FUNCTION_IDENTIFIER_TOKEN   = iota.new()
+EQUAL_TOKEN                 = iota.new()
+NOT_EQUAL_TOKEN             = iota.new()
+GREATER_THAN_TOKEN          = iota.new()
+SMALLER_THAN_TOKEN          = iota.new()
+GREATER_THAN_OR_EQUAL_TOKEN = iota.new()
+SMALLER_THAN_OR_EQUAL_TOKEN = iota.new()
+COMMENT_TOKEN               = iota.new()
 
 # Literals
 SIZE_LITERAL            =   iota.new()  # Size to allocat for any type of data.
@@ -139,10 +152,21 @@ DOLLAR_SYMBOL = iota.new()
 TOKENS_SYNTAX_MAP: dict[int, str] = {
     KEYWORD_TOKEN: "KEYWORD_TOKEN",
     WORD_TOKEN: "WORD_TOKEN",
+    SYMBOL_TOKEN: "SYMBOL_TOKEN",
     IDENTIFIER_TOKEN: "IDENTIFIER_TOKEN",
     TYPE_TOKEN: "TYPE_TOKEN",
     VALUE_TOKEN: "VALUE_TOKEN",
     DEREFERENCE_PTR_TOKEN: "DEREFERENCE_PTR_TOKEN",
+    CONST_IDENTIFIER_TOKEN: "CONST_IDENTIFIER_TOKEN",
+    VAR_IDENTIFIER_TOKEN: "VAR_IDENTIFIER_TOKEN",
+    PTR_IDENTIFIER_TOKEN: "PTR_IDENTIFIER_TOKEN",
+    FUNCTION_IDENTIFIER_TOKEN: "FUNCTION_IDENTIFIER_TOKEN",
+    EQUAL_TOKEN: "EQUAL_TOKEN",
+    NOT_EQUAL_TOKEN: "NOT_EQUAL_TOKEN",
+    GREATER_THAN_TOKEN: "GREATER_THAN_TOKEN",
+    SMALLER_THAN_TOKEN: "SMALLER_THAN_TOKEN",
+    GREATER_THAN_OR_EQUAL_TOKEN: "GREATER_THAN_OR_EQUAL_TOKEN",
+    SMALLER_THAN_OR_EQUAL_TOKEN: "SMALLER_THAN_OR_EQUAL_TOKEN",
     COMMENT_TOKEN: "COMMENT_TOKEN"
 }
 
@@ -161,6 +185,8 @@ KEYWORDS_SYNTAX_MAP: dict[int, str] = {
     DEL_KEYWORD: "DEL_KEYWORD",
     INTO_KEYWORD: "INTO_KEYWORD",
     SYSCALL_KEYWORD: "SYSCALL_KEYWORD",
+    IF_KEYWORD: "IF_KEYWORD",
+    ELSE_KEYWORD: "ELSE_KEYWORD",
     COMMENT_KEYWORD: "COMMENT_KEYWORD"
 }
 
@@ -178,6 +204,8 @@ KEYWORDS: dict[int, str] = {
     DEL_KEYWORD: "del",
     INTO_KEYWORD: "into",
     SYSCALL_KEYWORD: "syscall",
+    IF_KEYWORD: "if",
+    ELSE_KEYWORD: "else",
     COMMENT_KEYWORD: "//"
 }
 

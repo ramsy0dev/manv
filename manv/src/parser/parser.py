@@ -67,6 +67,11 @@ class Parser:
 
         last_line = None
 
+        # If-else condition
+        is_if_condition_block = False
+        is_else_condition_block = False
+        if_else: IfElse = None
+
         for i, token in enumerate(tokens.tokens):
             current_line = token.line
             
@@ -82,6 +87,25 @@ class Parser:
             # Ignore Empty lines
             if len(line_tokens) == 0:
                 continue
+            
+            # Symbols
+            if list(line_tokens[0].items())[0][0] == TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]:
+                symbol = list(line_tokens[0].items())[0][1]
+                    
+                # Symbol: RBRACE_SYMBOL
+                # Close an if condition or else condition block
+                if symbol == SYMBOLS_SYNTAX_MAP[RBRACE_SYMBOL]:
+                    if is_if_condition_block:
+                        is_if_condition_block = False
+                    elif is_else_condition_block:
+                        is_else_condition_block = False
+                        program.statements.append(if_else)
+                
+                # Keyword: ELSE_KEYWORD
+                if list(line_tokens[-1].items())[0][1] == KEYWORDS_SYNTAX_MAP[ELSE_KEYWORD]:
+                    is_if_condition_block = False
+                    is_else_condition_block = True
+            
 
             # Keywords
             if list(line_tokens[0].items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]:
@@ -108,9 +132,12 @@ class Parser:
                         line=current_line
                     )
 
-                    program.statements.append(
-                        const_declaration
-                    )
+                    if is_if_condition_block:
+                        if_else.if_block_statements.append(const_declaration)
+                    elif is_else_condition_block:
+                        if_else.else_block_statements.append(const_declaration)
+                    else:
+                        program.statements.append(const_declaration)
 
                 # VAR_KEYWORD
                 if keyword == KEYWORDS_SYNTAX_MAP[VAR_KEYWORD]:
@@ -136,7 +163,12 @@ class Parser:
                         line=current_line
                     )
 
-                    program.statements.append(var_declaration)
+                    if is_if_condition_block:
+                        if_else.if_block_statements.append(var_declaration)
+                    elif is_else_condition_block:
+                        if_else.else_block_statements.append(var_declaration)
+                    else:
+                        program.statements.append(var_declaration)
                 
                 # Keyword: ptr
                 if keyword == KEYWORDS_SYNTAX_MAP[PTR_KEYWORD]:
@@ -163,7 +195,12 @@ class Parser:
                         line=current_line
                     )
 
-                    program.statements.append(ptr_declaration)
+                    if is_if_condition_block:
+                        if_else.if_block_statements.append(ptr_declaration)
+                    elif is_else_condition_block:
+                        if_else.else_block_statements.append(ptr_declaration)
+                    else:
+                        program.statements.append(ptr_declaration)
                 
                 # Operations keywords (mul, div, add, sub)
                 op_keywords = [
@@ -219,9 +256,12 @@ class Parser:
                         )
                     )
 
-                    program.statements.append(
-                        op
-                    )
+                    if is_if_condition_block:
+                        if_else.if_block_statements.append(op)
+                    elif is_else_condition_block:
+                        if_else.else_block_statements.append(op)
+                    else:
+                        program.statements.append(op)
 
                 # keyword: syscall
                 if keyword == KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]:
@@ -259,7 +299,60 @@ class Parser:
                         error=Identifier(name=error_identifier)
                     )
 
-                    program.statements.append(syscall)
+                    if is_if_condition_block:
+                        if_else.if_block_statements.append(syscall)
+                    elif is_else_condition_block:
+                        if_else.else_block_statements.append(syscall)
+                    else:
+                        program.statements.append(syscall)
+                
+                # Keyword: IF_KEYWORD
+                if keyword == KEYWORDS_SYNTAX_MAP[IF_KEYWORD]:
+                    left_element = list(line_tokens[2].items())[0][1]
+                    right_element = list(line_tokens[4].items())[0][1]
+                    compare_symbol = list(line_tokens[3].items())[0][1]
+                    
+                    # Compare symbol
+                    compare_symbol_map = {
+                        "==": EqualSymbol,
+                        "!=": NotEqualSymbol,
+                        ">": GreaterThanSymbol,
+                        ">=":GreaterThanOrEqualToSymbol ,
+                        "<": SmallerThanSymbol,
+                        "<=": SmallerThanOrEqualToSymbol,
+                    }
+                    compare_symbol = compare_symbol_map[compare_symbol]()
+
+                    # Left element
+                    if list(line_tokens[2].items())[0][0] == TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]:
+                        left_element = Identifier(name=left_element)
+                    elif list(line_tokens[2].items())[0][0] == LITERALS_SYNTAX_MAP[NUMBER_LITERAL]:
+                        left_element = NumberLiteral(value=left_element)
+                    elif list(line_tokens[2].items())[0][0] == LITERALS_SYNTAX_MAP[FLOAT_LITERAL]:
+                        left_element = FloatLiteral(value=left_element)
+
+                    # Right element
+                    if list(line_tokens[4].items())[0][0] == TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]:
+                        right_element = Identifier(name=right_element)
+                    elif list(line_tokens[4].items())[0][0] == LITERALS_SYNTAX_MAP[NUMBER_LITERAL]:
+                        right_element = NumberLiteral(value=right_element)
+                    elif list(line_tokens[4].items())[0][0] == LITERALS_SYNTAX_MAP[FLOAT_LITERAL]:
+                        right_element = FloatLiteral(value=right_element)
+
+                    if_else = IfElse(
+                        condition=Compare(
+                            left=left_element,
+                            right=right_element,
+                            symbol=compare_symbol
+                        ),
+                        if_block_statements=list(),
+                        else_block_statements=list()
+                    )
+                    is_if_condition_block = True
+                
+                # Keyword: ELSE_KEYWORD
+                # This keyword will be tracked with the symbol '}'
+                # because of its syntax.
                 
             last_line = current_line
         

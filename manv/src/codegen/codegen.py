@@ -58,7 +58,7 @@ DATA_SECTION = "data"
 BSS_SECTION  = "bss"
 
 # Labels
-MAIN_FUNC_LABEL = "main"
+MAIN_FUNC_LABEL = "_start"
 
 # Arguments registers for Unix x86-64
 ARGS_REGISTERS = [
@@ -85,32 +85,31 @@ class Codegen:
 
         self.asm.add_to_section(
             section=TEXT_SECTION,
-            label=MAIN_FUNC_LABEL,
             code=[
                 "global _start\n",
-                ("_start:\n" if len(program.statements) != 0 else "")
             ]
         )
 
         for statement in program.statements:
             self.process_statement(
-                statement=statement
+                statement=statement,
+                asm_label=MAIN_FUNC_LABEL
             )
-        
+
         # Exit syscall
         self.asm.add_to_section(
             section=TEXT_SECTION,
-            label="exit_syscall",
+            label=MAIN_FUNC_LABEL,
             code=[
                 "\t" + f"mov rax, 60\n",
-                "\t" + f"mov rsi, 0\n",
+                "\t" + f"mov rdi, 0\n",
                 "\t" + f"syscall\n"
             ]
         )
         
         return self.asm
 
-    def process_statement(self, statement: ASTNode) -> str:
+    def process_statement(self, statement: ASTNode, asm_label: str | None = None) -> str:
         """
         Process a single statement
         """
@@ -124,7 +123,6 @@ class Codegen:
             
             self.asm.add_to_section(
                 section=DATA_SECTION,
-                label=statement.identifier.name + "_const",
                 code=asm_code
             )
 
@@ -146,7 +144,6 @@ class Codegen:
             
             self.asm.add_to_section(
                 section=section,
-                label=statement.identifier.name + "_var",
                 code=asm_code
             )
 
@@ -165,7 +162,6 @@ class Codegen:
             
             self.asm.add_to_section(
                 section=DATA_SECTION,
-                label=label,
                 code=data_sec_asm_code
             )
 
@@ -303,7 +299,7 @@ class Codegen:
             # label _start
             self.asm.add_to_section(
                 section=TEXT_SECTION,
-                label=MAIN_FUNC_LABEL,
+                label=asm_label,
                 code=asm_code
             )
 
@@ -326,7 +322,7 @@ class Codegen:
             # Move the syscall number to the RAX register
             self.asm.add_to_section(
                 section=TEXT_SECTION,
-                label=label,
+                label=asm_label,
                 code=[
                     ("\t" + f"mov rax, {syscall_number}\n" if not isinstance(syscall_number, Identifier) else "\t" + f"mov rax, [{syscall_number.name}]\n"),
                 ]
@@ -340,86 +336,165 @@ class Codegen:
                 if isinstance(arg, DereferencePointer):
                     self.asm.add_to_section(
                         section=TEXT_SECTION,
-                        label=label,
+                        label=asm_label,
                         code=[
                             "\t" + f"mov {syscall_regs_list[i]}, [{arg.identifier.name}]\n"
-                        ]
+                        ],
+                        
                     )
                 elif arg in self.program.const_identifiers + self.program.var_identifiers:
                     self.asm.add_to_section(
                         section=TEXT_SECTION,
-                        label=label,
+                        label=asm_label,
                         code=[
                             "\t" + f"mov {syscall_regs_list[i]}, [{arg}]\n"
-                        ]
+                        ],
+                        
                     )
                 else:
                     self.asm.add_to_section(
                         section=TEXT_SECTION,
-                        label=label,
+                        label=asm_label,
                         code=[
                             "\t" + f"mov {syscall_regs_list[i]}, {arg}\n"
-                        ]
+                        ],
+                        
                     )
             
             # Call syscall
             self.asm.add_to_section(
                 section=TEXT_SECTION,
-                label=label,
+                label=asm_label,
                 code=[
                     "\t" + "syscall\n"
-                ]
+                ],
+                
             )
 
             # Move the error raised by the syscall to the provided identifier
             self.asm.add_to_section(
                 section=TEXT_SECTION,
-                label=label,
+                label=asm_label,
                 code=[
                     "\t" + f"mov [{error_identifier}], rax\n"
-                ]
+                ],
+                
             )
-
-        # Function
-        if isinstance(statement, Function):
-            # Baked in assembly implementation
-            if statement.asm_code is not None:
-                for section in statement.asm_code:
-                    self.asm.add_to_section(
-                        section=section,
-                        label=statement.identifier.name + "_func",
-                        code=statement.asm_code[section]
-                    )
         
-        # Call Function
-        if isinstance(statement, CallFunction):
-            # Pass arguments
-            # NOTE: Max args number is 6
-            if statement.args_list is not None:
-                for i, arg in enumerate(statement.args_list):
-                    reg = ARGS_REGISTERS[i]
-                    
-                    if arg.reg_label is not None:
-                        reg = arg.reg_label
-                    
-                    value = None
+        # if-else condition
+        if isinstance(statement, IfElse):
+            comparision_asm_instruction_map = {
+                EqualSymbol: "je",
+                NotEqualSymbol: "jne",
+                GreaterThanSymbol: "jg",
+                GreaterThanOrEqualToSymbol: "jge",
+                SmallerThanSymbol: "jl",
+                SmallerThanOrEqualToSymbol: "jle",
+            }
+            comparision_opposite_asm_instructions_map = {
+                "je": "jne",
+                "jne": "je",
+                "jg": "jle",
+                "jge": "jl",
+                "jl": "jge",
+                "jle": "jg"
+            }
 
-                    # CallConstant
-                    if isinstance(arg.value, CallConstant):
-                        value = arg.value.identifier.name
-                    else:
-                        value = arg.value.value
-                    
-                    self.asm.add_to_section(
-                        section=TEXT_SECTION,
-                        label=statement.identifier.name + "_call_func",
-                        code="\t" + f"mov {reg}, {value}\n"
-                    )
+            # Compare
+            left_element = None     
+            right_element = None
+            compare_label = "compare" + random_ascii_str(len=8)
+            asm_code = []
+            #  Move the left or right element into a registery in case its a literal
+            if isinstance(statement.condition.left, Identifier) and isinstance(statement.condition.right, Identifier):
+                # Move the left element into the eax regitery
+                left_element = "eax"
+                asm_code.append(
+                    "\t" + f"mov {left_element}, [{statement.condition.left.name}]\n"
+                )
+                asm_code.append(
+                    "\t" + f"cmp {left_element}, [{statement.condition.right.name}]\n"
+                )
+            elif isinstance(statement.condition.left, Identifier) and isinstance(statement.condition.right, (NumberLiteral, FloatLiteral, StringLiteral, CharLiteral)):
+                right_element = "eax"
+                asm_code.append(
+                    "\t" + f"mov {right_element}, {statement.condition.right.value}\n"
+                )
+                asm_code.append(
+                    "\t" + f"cmp [{statement.condition.left.name}], {right_element}\n"
+                )
+            elif isinstance(statement.condition.left,(NumberLiteral, FloatLiteral, StringLiteral, CharLiteral)) and isinstance(statement.condition.left, Identifier):
+                left_element = "eax"
+                asm_code.append(
+                    "\t" + f"mov {left_element}, {statement.condition.left.value}\n"
+                )
+                asm_code.append(
+                    "\t" + f"cmp {left_element}, [{statement.condition.right.name}]\n"
+                )
+            else:
+                left_element = "eax"
+                asm_code.append(
+                    "\t" + f"mov {left_element}, {statement.condition.left.value}\n"
+                )
+                asm_code.append(
+                    "\t" + f"cmp {left_element}, [{statement.condition.right.name}]\n"
+                )
 
             self.asm.add_to_section(
                 section=TEXT_SECTION,
-                label=statement.identifier.name + "_call_func",
-                code="\t" + f"call {statement.identifier.name}\n"
+                label=asm_label,
+                code=asm_code
+            )
+            # If, Else block statements label
+            if_block_label = "if_block_" + str(random_int())
+            else_block_label = "else_block_" + str(random_int())
+
+            for if_block_statement in statement.if_block_statements:
+                self.process_statement(
+                    statement=if_block_statement,
+                    asm_label=if_block_label
+                )
+                # Add a return
+                self.asm.add_to_section(
+                    section=TEXT_SECTION,
+                    label=if_block_label,
+                    code=[
+                        "\t" + f"ret\n"
+                    ]
+                )
+            
+            for else_block_statement in statement.else_block_statements:
+                self.process_statement(
+                    statement=else_block_statement,
+                    asm_label=else_block_label
+                )
+
+                # Add a return
+                self.asm.add_to_section(
+                    section=TEXT_SECTION,
+                    label=else_block_label,
+                    code=[
+                        "\t" + f"ret\n"
+                    ]
+                )
+
+            # Jump instruction
+            jump_instruction = comparision_asm_instruction_map[type(statement.condition.symbol)]
+            opposite_jump_instruction = comparision_opposite_asm_instructions_map[jump_instruction]
+
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=asm_label,
+                code=[
+                    "\t" + f"{jump_instruction} {if_block_label}\n"
+                ]
+            )
+            self.asm.add_to_section(
+                section=TEXT_SECTION,
+                label=asm_label,
+                code=[
+                    "\t" + f"{opposite_jump_instruction} {else_block_label}\n"
+                ]
             )
 
     def get_size_of_obj(self, obj, seen=None) -> int:

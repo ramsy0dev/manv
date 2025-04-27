@@ -27,7 +27,7 @@ __all__ = [
 import sys
 
 from rich import print
-from typing import Generator
+from typing import Generator, List, Dict
 
 # Models
 from manv.models.line_model import LineModel
@@ -40,9 +40,9 @@ class Token:
     Class representing a line's tokens
     """
     line: LineModel
-    tokens: dict
+    tokens: Dict
 
-    def __init__(self, line: LineModel, tokens: dict) -> None:
+    def __init__(self, line: LineModel, tokens: Dict) -> None:
         self.line = line
         self.tokens = tokens
 
@@ -53,11 +53,11 @@ class Tokens:
     """
     file_path: str | None = None
     lines_count: int  = 0
-    tokens: list[Token] = list()
-    const_identifiers: list[str] = list()
-    var_identifiers: list[str] = list()
-    ptr_identifiers: list[str] = list()
-    functions_identifiers: list[str] = list()
+    tokens: List[Token] = list()
+    const_identifiers: List[str] = list()
+    var_identifiers: List[str] = list()
+    ptr_identifiers: List[str] = list()
+    functions_identifiers: List[str] = list()
 
     def __init__(self, file_path: str | None = None) -> None:
         self.file_path = file_path
@@ -79,6 +79,14 @@ class Lexer:
         
         last_line: LineModel | None = None
 
+
+        # if-else condition blocks
+        is_if_condition_block = False
+        is_else_condition_block = False
+        if_condition_block_count = 0
+        else_condition_block_count = 0
+        is_last_block_if_block = False
+        
         for i, line in enumerate(data):
             tokens.lines_count += 1
             
@@ -151,6 +159,10 @@ class Lexer:
                 # End-Of-Line without a semicolon
                 if i != 0:                              # Ignore EOF in empty lines
                     if char != ";" and next_char == "\n":
+                        # No semicolon needed at the EOF of an if-else block.
+                        if char == "{":
+                            continue
+
                         print(
                             f"[bold red][ERROR][reset]: Expected a semicolon at end of line '{token.line.line_number}'"
                         )
@@ -171,10 +183,40 @@ class Lexer:
                         f"[bold blue][DEBUG][reset]: Reached EOF of line '{current_line.line_number}'."
                     )
                     
-                    token.tokens.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: SYMBOLS[SEMICOLON_SYMBOL]})
+                    token.tokens.append({TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS[SEMICOLON_SYMBOL]})
                     token_construct = ""
                     is_eof = False
                 
+                # Symbol '{' start of if-else block, function block, struct block...
+                if char == "{":
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[LBRACE_SYMBOL]}
+                    )
+                    continue
+                
+                # Symbol '}' end if or else block
+                if char == "}":
+                    # End if condition block
+                    if is_if_condition_block:
+                        token.tokens.append(
+                            {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[RBRACE_SYMBOL]}
+                        )
+                        is_if_condition_block = False
+                        is_last_block_if_block = True
+                        if_condition_block_count -= 1
+
+                        continue
+                    
+                    # End else condition block
+                    elif is_else_condition_block:
+                        token.tokens.append(
+                            {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[RBRACE_SYMBOL]}
+                        )
+                        is_else_condition_block = False
+                        else_condition_block_count -= 1
+                        
+                        continue
+
                 token_construct += char
                 
                 # Keyword: CONST_KEYWORD
@@ -251,7 +293,7 @@ class Lexer:
                         
                     token_construct = ""
                     break
-            
+
                 # Keyword: SIZE_INC_KEYWORD
                 if token_construct == "size_inc":
                     token.tokens.append({TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] : KEYWORDS_SYNTAX_MAP[SIZE_INC_KEYWORD]})
@@ -317,6 +359,89 @@ class Lexer:
                     token_construct = ""
                     break
                 
+                # Keyword: IF_KEYWORD
+                if token_construct == "if":
+                    if_condition_block_count += 1
+                    is_if_condition_block = True
+                    
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[IF_KEYWORD]}
+                    )
+
+                    if_condition_tokens = self.parse_if_condition(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        last_char=last_char,
+                        next_char=next_char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    if if_condition_tokens is not None:
+                        for tok in if_condition_tokens:
+                            token.tokens.append(tok)
+                        
+                        token_construct = ""
+                        break
+                        
+                # Keyword: ELSE_KEYWORD
+                if token_construct == "else":
+                    if not is_last_block_if_block:
+                        print(f"[bold red][ERROR][reset]: Can't use else-condition without an if-condition in line '{token.line.line_number}'.")
+                        sys.exit(1)
+                    
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[KEYWORD_TOKEN]: KEYWORDS_SYNTAX_MAP[ELSE_KEYWORD]}
+                    )
+                    token_construct = ""
+
+                    else_condition_block_count += 1
+                    is_else_condition_block = True
+
+                    is_if_condition_block = False
+                    is_last_block_if_block = False
+                    if_condition_block_count -= 1
+                
+                # Constant identifier
+                if token_construct in tokens.const_identifiers:
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[CONST_IDENTIFIER_TOKEN]: token_construct}
+                    )
+                
+                # Variable indentifier
+                if token_construct in tokens.var_identifiers:
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[VAR_IDENTIFIER_TOKEN]: token_construct}
+                    )
+
+                    # Change the variable's value
+                    parsed_elements = self.parse_reasign_variable(
+                        token_construct=token_construct,
+                        current_index=i,
+                        current_char=char,
+                        last_char=last_char,
+                        next_char=next_char,
+                        line_content=current_line.content,
+                        token=token
+                    )
+
+                    if parsed_elements is not None:
+                        for tok in parsed_elements:
+                            token.tokens.append(tok)
+
+                # Pointer identifier
+                if token_construct in tokens.ptr_identifiers:
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[PTR_IDENTIFIER_TOKEN]: token_construct}
+                    )
+                
+                # Function identifier
+                if token_construct in tokens.functions_identifiers:
+                    token.tokens.append(
+                        {TOKENS_SYNTAX_MAP[FUNCTION_IDENTIFIER_TOKEN]: token_construct}
+                    )
+
             tokens.tokens.append(token)
 
             last_line = current_line
@@ -360,7 +485,6 @@ class Lexer:
 
         return clean_line + "\n"
 
-    
     def is_last_token_const(self, token: dict, index: int | None = -1) -> bool:
         """
         Is the last token a constant keyword
@@ -411,7 +535,7 @@ class Lexer:
         """
         last_token = token.tokens[index]
 
-        return list(last_token.items())[0][0] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[SYMBOL_TOKEN] and list(last_token.items())[0][1] == SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL] 
     
     def is_last_token_ptr(self, token: dict, index: int | None = -1) -> bool:
         """
@@ -429,7 +553,14 @@ class Lexer:
 
         return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] and list(last_token.items())[0][1] == KEYWORDS_SYNTAX_MAP[SYSCALL_KEYWORD]
     
-
+    def is_last_token_if(self, token: Tokens, index: int) -> bool:
+        """
+        Is the last token (or block) is an if-condition
+        """
+        last_token = token.tokens[index]
+        
+        return list(last_token.items())[0][0] == TOKENS_SYNTAX_MAP[KEYWORD_TOKEN] and list(last_token.items())[0][1] == KEYWORDS_SYNTAX_MAP[IF_KEYWORD]
+    
     def is_line_context_op(self, token: Token) -> bool:
         """
         Is the line context a mathematical operation (mul, div, sub, add)
@@ -462,6 +593,12 @@ class Lexer:
         Is the current line context a syscall.
         """
         return self.is_last_token_syscall(token=token, index=0)
+
+    def is_line_context_if(self, token: Token) -> bool:
+        """
+        Is the current line context an if condition.
+        """
+        return self.is_last_token_if(token=token, index=0)
 
     def parse_constant_declaration(self, token_construct: str, current_index: int, current_char: str, line_content: str, token: Token) -> list:
         """
@@ -587,7 +724,7 @@ class Lexer:
                             
                             # Append the semicolon if it's present
                             if value_char == ";":
-                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                                elements.append({TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]})
                             break
 
                         value += value_char
@@ -693,7 +830,7 @@ class Lexer:
 
                             if type_char == ";" and sequence[x+1:x+2] == "\n":
                                 elements.append(
-                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                    {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]}
                                 )
                                 
                             typ = ""
@@ -731,7 +868,7 @@ class Lexer:
                             
                             # Append the semicolon if it's present
                             if value_char == ";":
-                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                                elements.append({TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]})
                             break
 
                         value += value_char
@@ -798,7 +935,7 @@ class Lexer:
 
                             if type_char == ";" and sequence[x+1:x+2] == "\n":
                                 elements.append(
-                                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                                    {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]}
                                 )
                                 
                             typ = ""
@@ -836,7 +973,7 @@ class Lexer:
                             
                             # Append the semicolon if it's present
                             if value_char == ";":
-                                elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                                elements.append({TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]})
                             break
 
                         value += value_char
@@ -913,7 +1050,7 @@ class Lexer:
                     result_var_identifier = char[:-2] # Remove ';\n'
 
                     elements.append({TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: result_var_identifier})
-                    elements.append({SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"})
+                    elements.append({TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]})
                 
                 if len(elements) == 5:
                     break
@@ -993,7 +1130,7 @@ class Lexer:
                     {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: error_identifier[:-1].strip()}
                 )
                 elements.append(
-                    {SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]: ";"}
+                    {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[SEMICOLON_SYMBOL]}
                 )
             else:
                 elements.append(
@@ -1001,6 +1138,160 @@ class Lexer:
                 )
         
         return elements
+
+    def parse_condition(self,  token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token ) -> dict | None:
+        """
+        Parse conditions: '==', '!=', '>', '<', '>=', '=<'
+        """
+        elements = list()
+        left_element = ""
+        right_element = ""
+        condition_symbol = ""
+        is_left_element = True
+
+        compare_map = {
+            "==": EQUAL_TOKEN,
+            "!=": NOT_EQUAL_TOKEN,
+            ">": GREATER_THAN_TOKEN,
+            ">=": GREATER_THAN_OR_EQUAL_TOKEN,
+            "<": SMALLER_THAN_TOKEN,
+            "=<": SMALLER_THAN_OR_EQUAL_TOKEN
+        }
+        index_0_list = [i[0] for i in compare_map]
+
+        for i, char in enumerate(line_content):
+            # Skip spaces
+            if char == " ":
+                continue
+            
+            if char in index_0_list and len(condition_symbol)  == 0:
+                # Append the left element
+                if self.is_seq_char_int(seq_char=left_element):
+                    elements.append(
+                        {LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: left_element}
+                    )
+                elif self.is_seq_char_float(seq_char=left_element):
+                    elements.append(
+                        {LITERALS_SYNTAX_MAP[FLOAT_LITERAL]: left_element}
+                    )
+                else:
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: left_element}
+                    )
+                
+                is_left_element = False # Move to the right element
+                condition_symbol += char
+
+                # The condition symbols shouldn't contain a space
+                # in between:
+                # Example:
+                #       10 = = 10;  // Should throw an error.
+                #       10 == 10; // Should work
+                if line_content[i+1] == " " and char not in [">", "<"]: # Characters like >, < will expect '=' after.
+                    print(f"[bold red][ERROR][reset]: Invalid syntax in line '{token.line.line_number}'.")
+                    sys.exit(1)
+                elif line_content[i+1] == " " and char in [">", "<"]:
+                     pass
+                else:
+                    condition_symbol += line_content[i+1]
+
+                # Invalid compare token
+                if condition_symbol not in compare_map:
+                    print(f"[bold red][ERROR][reset]: Invalid compare symbol '{condition_symbol}' in line '{token.line.line_number}'")
+                    sys.exit(1)
+                else:
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[compare_map[condition_symbol]]: condition_symbol}
+                    )
+                
+                # Skip this char so it won't be added to right or left element
+                continue
+            elif char in index_0_list and len(condition_symbol) == 2:
+                continue
+            
+            # Append the char to right or left element
+            if not is_left_element:
+                right_element += char
+            else:
+                left_element += char
+            
+            # End of the right element
+            if i == len(line_content)-1:
+                if self.is_seq_char_int(seq_char=right_element):
+                    elements.append(
+                        {LITERALS_SYNTAX_MAP[NUMBER_LITERAL]: right_element}
+                    )
+                elif self.is_seq_char_float(seq_char=right_element):
+                    elements.append(
+                        {LITERALS_SYNTAX_MAP[FLOAT_LITERAL]: right_element}
+                    )
+                else:
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[IDENTIFIER_TOKEN]: right_element}
+                    )
+
+        return elements
+
+    def parse_if_condition(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token ) -> dict | None:
+        """
+        Parse the condition in if-condition-block
+        """
+        elements = list()
+
+        if self.is_line_context_if(token=token):
+            condition = ""                  # Conditions for now are just comparison
+            is_in_condition_block = False   # Track if we are inside of '()'
+            rparen_symbol = False           # Track the '(' symbol
+            is_rbrace_symbol = False        # Track the '{' symbol
+
+            line_content = self.strip_line_from_comments(line_content=line_content)
+            for char in line_content:
+                if char == "(":
+                    is_in_condition_block = True
+                    elements.append(
+                        {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[LPAREN_SYMBOL]}
+                    )
+                    continue
+                elif char == ")":
+                    is_in_condition_block = False
+                    rparen_symbol = True
+                elif char == "{":
+                    is_rbrace_symbol = True
+                
+                if is_in_condition_block:
+                    condition += char
+
+            condition_elements = self.parse_condition(
+                token_construct=token_construct,
+                current_index=current_index,
+                current_char=current_char,
+                last_char=last_char,
+                next_char=next_char,
+                line_content=condition,
+                token=token
+            )
+
+            for element in condition_elements:
+                elements.append(element)
+            
+            if rparen_symbol:
+                elements.append(
+                    {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[RPAREN_SYMBOL]}
+                )
+            if is_rbrace_symbol:
+                elements.append(
+                    {TOKENS_SYNTAX_MAP[SYMBOL_TOKEN]: SYMBOLS_SYNTAX_MAP[LBRACE_SYMBOL]}
+                )
+
+            return elements
+
+        return None
+
+    def parse_reasign_variable(self, token_construct: str, current_index: int, current_char: str, last_char: str, next_char: str, line_content: str, token: Token ) -> dict | None:
+        """
+        Parse reasign/asign a new value to a variable.
+        """
+        return None
 
     def check_value_type(self, _type: str, value: str) -> bool:
         """
@@ -1077,13 +1368,13 @@ class Lexer:
         is actually a float.
         """
         try:
-            float(data)
+            float(seq_char)
             # If data is a number it can be both
             # an int and a float, so eliminate this
             # by checking if the string representation 
             # of the data contains a '.' which is only
             # found in floats.
-            if "." not in str(data):
+            if "." not in str(seq_char):
                 return False
             return True
         except:

@@ -39,6 +39,14 @@ __all__ = [
     "AdditionOp",
     "DivideOp",
     "SubtractionOp",
+    "EqualSymbol",
+    "NotEqualSymbol",
+    "GreaterThanSymbol",
+    "GreaterThanOrEqualToSymbol",
+    "SmallerThanSymbol",
+    "SmallerThanOrEqualToSymbol",
+    "Compare",
+    "IfElse",
     "Syscall",
     "OpResultAssignment"
 ]
@@ -72,7 +80,7 @@ class Constant(ASTNode):
     line: LineModel
 
     def __repr__(self) -> str:
-        return f"Constant(identifier={self.identifier!r}, size={self.size!r}, typ={self.typ!r}, value={self.value!r}, source_code={self.source_code!r})"
+        return f"Constant(identifier={self.identifier!r}, size={self.size!r}, typ={self.typ!r}, value={self.value!r})"
 
 @dataclass
 class CallConstant(ASTNode):
@@ -182,6 +190,45 @@ class Syscall(ASTNode):
     syscall_number: Identifier | int
     args: List
     error: Identifier
+
+# Compare
+class CompareSymbol:
+    pass
+
+@dataclass
+class EqualSymbol(CompareSymbol):
+    pass
+@dataclass
+class NotEqualSymbol(CompareSymbol):
+    pass
+
+@dataclass
+class GreaterThanSymbol(CompareSymbol):
+    pass
+
+@dataclass
+class GreaterThanOrEqualToSymbol(CompareSymbol):
+    pass
+
+@dataclass
+class SmallerThanSymbol(CompareSymbol):
+    pass
+@dataclass
+class SmallerThanOrEqualToSymbol(CompareSymbol):
+    pass
+
+@dataclass
+class Compare(ASTNode):
+    left: Identifier | Literal
+    right: Identifier | Literal
+    symbol: CompareSymbol
+
+# if-else condition
+@dataclass
+class IfElse(ASTNode):
+    condition: Compare
+    if_block_statements: List[ASTNode]
+    else_block_statements: List[ASTNode]
 
 @dataclass
 class Program(ASTNode):
