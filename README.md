@@ -1,6 +1,6 @@
 # Introduction
 
-ManV is an SCL (Structured Calculations Language) inspired by SQL (Structured Query Language), made for creating complex structured calculations.
+ManV, an other compiled programming language intended for writing algorithms.
 
 # Development plan
 
@@ -9,7 +9,8 @@ ManV is an SCL (Structured Calculations Language) inspired by SQL (Structured Qu
 - [X] Implement basic math operations (mul, div, add, sub)
 - [X] Implement syscall keyword for interacting the system
 - [X] Implement a basic pointer
-- [ ] Implement memory manipulation keywords like pop, push...
+- [ ] Implement binary operations like right shift, left shift ...etc
+- [ ] Implement memory manipulation
 - [X] Implement if-else conditions
 - [ ] Implement while loops
 - [ ] Implement functions
