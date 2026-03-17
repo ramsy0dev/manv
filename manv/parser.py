@@ -24,6 +24,7 @@ class Parser:
         self.file = file
         self.source_lines = source_lines
         self.pos = 0
+        self._after_block = False  # Set True after consuming a DEDENT (block end)
 
     def parse(self) -> ast.Program:
         declarations: list[object] = []
@@ -50,7 +51,11 @@ class Parser:
             else:
                 if decorators:
                     self._error("E1012", "decorators must appear immediately before a function declaration", self._current())
-                statements.append(self._parse_statement())
+                result = self._parse_statement()
+                if isinstance(result, list):
+                    statements.extend(result)
+                else:
+                    statements.append(result)
         span = Span(self.file, 1, 1)
         docstring, statements = self._extract_leading_docstring(statements)
         return ast.Program(declarations=declarations, statements=statements, span=span, docstring=docstring)
@@ -210,14 +215,18 @@ class Parser:
         return ast.Decorator(name=name_tok.lexeme, args=args, kwargs=kwargs, span=self._span(name_tok))
 
     def _parse_statement(self) -> object:
+        if self._match_keyword("fn"):
+            # Local function declaration — defines a named function in current scope.
+            decl = self._parse_fn_decl()
+            return decl
         if self._match_keyword("import"):
             stmt = self._parse_import_stmt()
             self._consume_required_newline("expected newline after import")
             return stmt
         if self._match_keyword("from"):
-            stmt = self._parse_from_import_stmt()
+            stmts = self._parse_from_import_list()
             self._consume_required_newline("expected newline after from-import")
-            return stmt
+            return stmts
         if self._is_c_declaration_start():
             stmt = self._parse_c_decl_stmt()
             self._consume_required_newline("expected newline after declaration")
@@ -265,6 +274,13 @@ class Parser:
             self._consume_required_newline("expected newline")
             return ast.UnsupportedStmt(feature="memory", detail=detail, span=self._span(token))
 
+        if self._is("IDENT") and self._peek(1).kind == "OP" and self._peek(1).lexeme in {"+=", "-=", "*=", "/=", "%="}:
+            name_tok = self._advance()
+            op_tok = self._advance()
+            value = self._parse_expression()
+            self._consume_required_newline("expected newline after augmented assignment")
+            return ast.AugAssignStmt(name=name_tok.lexeme, op=op_tok.lexeme, value=value, span=self._span(op_tok))
+
         if self._is("IDENT") and self._peek(1).kind == "OP" and self._peek(1).lexeme == "=":
             name_tok = self._advance()
             assign_tok = self._advance()
@@ -277,10 +293,26 @@ class Parser:
             self._consume_required_newline("expected newline after attribute assignment")
             return attr_assign
 
+        aug_attr = self._try_parse_aug_attr_assignment()
+        if aug_attr is not None:
+            self._consume_required_newline("expected newline after augmented attribute assignment")
+            return aug_attr
+
         index_assign = self._try_parse_index_assignment()
         if index_assign is not None:
             self._consume_required_newline("expected newline after index assignment")
             return index_assign
+
+        aug_index = self._try_parse_aug_index_assignment()
+        if aug_index is not None:
+            self._consume_required_newline("expected newline after augmented index assignment")
+            return aug_index
+
+        if self._match_keyword("with"):
+            return self._parse_with_stmt()
+
+        if self._match_keyword("match"):
+            return self._parse_match_stmt()
 
         expr = self._parse_expression()
         self._consume_required_newline("expected newline after expression")
@@ -289,7 +321,7 @@ class Parser:
     def _parse_let_stmt(self) -> ast.LetStmt:
         let_tok = self._prev()
         if self._is("IDENT") and self._current().lexeme == "mut" and self._peek(1).kind == "IDENT":
-            self._error("E1010", "`mut` declarations are not supported; use `let <name> = ...`", self._current())
+            self._advance()  # consume 'mut', treat as regular let
         name_tok = self._expect("IDENT", message="expected variable name")
         type_name = None
         value = None
@@ -420,18 +452,26 @@ class Parser:
             alias = alias_tok.lexeme
         return ast.ImportStmt(module=module, alias=alias, span=self._span(tok), level=level)
 
-    def _parse_from_import_stmt(self) -> ast.FromImportStmt:
+    def _parse_from_import_list(self) -> list[ast.FromImportStmt]:
         tok = self._prev()
         # `from . import x` is valid, so this path allows an empty module suffix.
         module, level = self._parse_module_path(allow_empty=True)
         if not self._match_keyword("import"):
             self._error("E1004", "expected 'import' in from-import statement", self._current())
-        name_tok = self._expect("IDENT", message="expected imported symbol name")
-        alias: str | None = None
-        if self._match_keyword("as"):
-            alias_tok = self._expect("IDENT", message="expected alias after 'as'")
-            alias = alias_tok.lexeme
-        return ast.FromImportStmt(module=module, name=name_tok.lexeme, alias=alias, span=self._span(tok), level=level)
+        results: list[ast.FromImportStmt] = []
+        while True:
+            name_tok = self._expect("IDENT", message="expected imported symbol name")
+            alias: str | None = None
+            if self._match_keyword("as"):
+                alias_tok = self._expect("IDENT", message="expected alias after 'as'")
+                alias = alias_tok.lexeme
+            results.append(ast.FromImportStmt(module=module, name=name_tok.lexeme, alias=alias, span=self._span(tok), level=level))
+            if not self._match_op(","):
+                break
+        return results
+
+    def _parse_from_import_stmt(self) -> ast.FromImportStmt:
+        return self._parse_from_import_list()[0]
 
     def _parse_module_path(self, *, allow_empty: bool) -> tuple[str, int]:
         # Leading dots encode relative depth.
@@ -481,7 +521,11 @@ class Parser:
         condition = self._parse_expression()
         self._expect_op(":")
         body = self._parse_block()
-        return ast.WhileStmt(condition=condition, body=body, span=self._span(while_tok))
+        else_body: list[object] = []
+        if self._match_keyword("else"):
+            self._expect_op(":")
+            else_body = self._parse_block()
+        return ast.WhileStmt(condition=condition, body=body, span=self._span(while_tok), else_body=else_body)
 
     def _parse_for_stmt(self) -> ast.ForStmt:
         for_tok = self._prev()
@@ -491,7 +535,11 @@ class Parser:
         iterable = self._parse_expression()
         self._expect_op(":")
         body = self._parse_block()
-        return ast.ForStmt(var_name=name_tok.lexeme, iterable=iterable, body=body, span=self._span(for_tok))
+        else_body: list[object] = []
+        if self._match_keyword("else"):
+            self._expect_op(":")
+            else_body = self._parse_block()
+        return ast.ForStmt(var_name=name_tok.lexeme, iterable=iterable, body=body, span=self._span(for_tok), else_body=else_body)
 
     def _parse_block(self) -> list[object]:
         self._consume_required_newline("expected newline after ':'")
@@ -501,8 +549,13 @@ class Parser:
             self._consume_newlines()
             if self._is("DEDENT") or self._is("EOF"):
                 break
-            body.append(self._parse_statement())
+            result = self._parse_statement()
+            if isinstance(result, list):
+                body.extend(result)
+            else:
+                body.append(result)
         self._expect("DEDENT", message="expected dedent")
+        self._after_block = True
         return body
 
     def _parse_stub_block(self) -> list[str]:
@@ -648,6 +701,24 @@ class Parser:
 
     def _parse_postfix(self) -> object:
         expr = self._parse_primary()
+        # Macro call: IdentifierExpr followed by !( ... )
+        if (
+            isinstance(expr, ast.IdentifierExpr)
+            and self._is_op("!")
+            and self._peek(1).kind == "OP"
+            and self._peek(1).lexeme == "("
+        ):
+            self._advance()  # consume !
+            self._advance()  # consume (
+            macro_args: list[object] = []
+            if not self._is_op(")"):
+                while True:
+                    macro_args.append(self._parse_expression())
+                    if self._match_op(","):
+                        continue
+                    break
+            close = self._expect_op(")")
+            expr = ast.MacroCallExpr(name=expr.name, args=macro_args, span=self._span(close))
         while True:
             if self._match_op("("):
                 args: list[object] = []
@@ -720,8 +791,33 @@ class Parser:
                     break
             close = self._expect_op("}")
             return ast.MapExpr(entries=entries, span=self._span(close))
+        if self._match_keyword("fn"):
+            return self._parse_lambda_expr()
         self._error("E1002", "expected expression", tok)
         return ast.LiteralExpr(value=None, literal_type="none", span=self._span(tok))
+
+    def _parse_lambda_expr(self) -> ast.LambdaExpr:
+        """Parse ``fn(params) -> return_type: body`` as an expression."""
+        fn_tok = self._prev()
+        self._expect_op("(")
+        params: list[ast.Param] = []
+        if not self._is_op(")"):
+            while True:
+                p_tok = self._expect("IDENT", message="expected parameter name")
+                p_type = None
+                if self._match_op(":"):
+                    p_type = self._parse_type(stop_ops={",", ")"})
+                params.append(ast.Param(name=p_tok.lexeme, type_name=p_type, span=self._span(p_tok)))
+                if self._match_op(","):
+                    continue
+                break
+        self._expect_op(")")
+        return_type = None
+        if self._match_op("->"):
+            return_type = self._parse_type(stop_ops={":"})
+        self._expect_op(":")
+        body = self._parse_block()
+        return ast.LambdaExpr(params=params, return_type=return_type, body=body, span=self._span(fn_tok))
 
     def _collect_until_newline(self) -> str:
         parts: list[str] = []
@@ -734,6 +830,12 @@ class Parser:
             pass
 
     def _consume_required_newline(self, message: str) -> None:
+        if self._after_block:
+            # A block expression (e.g. lambda) already consumed the trailing
+            # newline structure, so no explicit NEWLINE token will be present.
+            self._after_block = False
+            self._consume_newlines()
+            return
         if not self._match("NEWLINE"):
             self._error("E1003", message, self._current())
         self._consume_newlines()
@@ -780,6 +882,9 @@ class Parser:
     def _advance(self) -> Token:
         tok = self.tokens[self.pos]
         self.pos += 1
+        # Any token advance resets the block-end flag unless we're inside
+        # _consume_required_newline which checks and clears it explicitly.
+        self._after_block = False
         return tok
 
     def _is(self, kind: str) -> bool:
@@ -830,6 +935,78 @@ class Parser:
         assign_tok = self._prev()
         value = self._parse_expression()
         return ast.SetIndexStmt(target=target, index=index_expr, value=value, span=self._span(assign_tok))
+
+    def _try_parse_aug_attr_assignment(self) -> ast.AugAssignAttrStmt | None:
+        aug_ops = {"+=", "-=", "*=", "/=", "%="}
+        if not (
+            self._is("IDENT")
+            and self._peek(1).kind == "OP"
+            and self._peek(1).lexeme == "."
+            and self._peek(2).kind == "IDENT"
+            and self._peek(3).kind == "OP"
+            and self._peek(3).lexeme in aug_ops
+        ):
+            return None
+        ident = self._advance()
+        target = ast.IdentifierExpr(name=ident.lexeme, span=self._span(ident))
+        self._expect_op(".")
+        attr = self._expect("IDENT", message="expected attribute name")
+        op_tok = self._advance()
+        value = self._parse_expression()
+        return ast.AugAssignAttrStmt(target=target, attr=attr.lexeme, op=op_tok.lexeme, value=value, span=self._span(op_tok))
+
+    def _try_parse_aug_index_assignment(self) -> ast.AugAssignIndexStmt | None:
+        aug_ops = {"+=", "-=", "*=", "/=", "%="}
+        if not (self._is("IDENT") and self._peek(1).kind == "OP" and self._peek(1).lexeme == "["):
+            return None
+        start = self.pos
+        ident_tok = self._advance()
+        target = ast.IdentifierExpr(name=ident_tok.lexeme, span=self._span(ident_tok))
+        self._expect_op("[")
+        index_expr = self._parse_expression()
+        self._expect_op("]")
+        if not (self._current().kind == "OP" and self._current().lexeme in aug_ops):
+            self.pos = start
+            return None
+        op_tok = self._advance()
+        value = self._parse_expression()
+        return ast.AugAssignIndexStmt(target=target, index=index_expr, op=op_tok.lexeme, value=value, span=self._span(op_tok))
+
+    def _parse_with_stmt(self) -> ast.WithStmt:
+        with_tok = self._prev()
+        context = self._parse_expression()
+        bind_name: str | None = None
+        if self._match_keyword("as"):
+            bind_tok = self._expect("IDENT", message="expected bind variable after 'as'")
+            bind_name = bind_tok.lexeme
+        self._expect_op(":")
+        body = self._parse_block()
+        return ast.WithStmt(context=context, bind_name=bind_name, body=body, span=self._span(with_tok))
+
+    def _parse_match_stmt(self) -> ast.MatchStmt:
+        match_tok = self._prev()
+        subject = self._parse_expression()
+        self._expect_op(":")
+        self._consume_required_newline("expected newline after ':'")
+        self._expect("INDENT", message="expected indented match block")
+        cases: list[ast.CaseClause] = []
+        while not self._is("DEDENT") and not self._is("EOF"):
+            self._consume_newlines()
+            if self._is("DEDENT") or self._is("EOF"):
+                break
+            if not (self._is("IDENT") and self._current().lexeme == "case"):
+                self._error("E1014", "expected 'case' clause inside match block", self._current())
+            case_tok = self._advance()
+            pattern = self._parse_expression()
+            guard: object | None = None
+            if self._is("IDENT") and self._current().lexeme == "if":
+                self._advance()
+                guard = self._parse_expression()
+            self._expect_op(":")
+            body = self._parse_block()
+            cases.append(ast.CaseClause(pattern=pattern, guard=guard, body=body, span=self._span(case_tok)))
+        self._expect("DEDENT", message="expected dedent after match block")
+        return ast.MatchStmt(subject=subject, cases=cases, span=self._span(match_tok))
 
     def _is_op(self, op: str) -> bool:
         tok = self._current()

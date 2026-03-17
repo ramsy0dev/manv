@@ -201,4 +201,3 @@ fn main() -> int:
     print(core_len(gpu_backends()))
 
     return 0
-    

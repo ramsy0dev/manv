@@ -94,6 +94,11 @@ BUILTIN_ALIASES: dict[str, str] = {
     "str": "core_str",
     "iter": "core_iter",
     "next": "core_next",
+    "map_keys": "core_map_keys",
+    "map_values": "core_map_values",
+    "map_has_key": "core_map_has_key",
+    "array_append": "core_array_append",
+    "array_pop": "core_array_pop",
 }
 
 
@@ -218,11 +223,22 @@ def invoke_intrinsic(
     )
 
 
+_INTRIN_NS_SHORT: dict[str, str] = {
+    # Allow `__intrin.array_append` in addition to `__intrin.core_array_append`.
+    "array_append": "core_array_append",
+    "array_pop": "core_array_pop",
+    "map_keys": "core_map_keys",
+    "map_values": "core_map_values",
+    "map_has_key": "core_map_has_key",
+}
+
+
 def std_namespace_attr(base: Any, attr: str) -> Any | None:
     if isinstance(base, IntrinsicNamespace):
-        return IntrinsicCallable(attr)
+        resolved = _INTRIN_NS_SHORT.get(attr, attr)
+        return IntrinsicCallable(resolved)
     if isinstance(base, StdNamespace):
-        if attr in {"core", "io", "fs", "path", "time", "rand", "json", "memory", "gpu", "sys", "os", "process", "url", "http"}:
+        if attr in {"core", "io", "fs", "path", "time", "rand", "json", "memory", "gpu", "sys", "os", "process", "url", "http", "str"}:
             return StdModule(attr)
         return None
     if isinstance(base, StdModule):
@@ -283,6 +299,35 @@ def std_namespace_attr(base: Any, attr: str) -> Any | None:
             "memory.stats": "mem_stats",
             "memory.set_deterministic_gc": "mem_set_deterministic_gc",
             "memory.set_gc_stress": "mem_set_gc_stress",
+            "core.str_upper": "str_upper",
+            "core.str_lower": "str_lower",
+            "core.str_strip": "str_strip",
+            "core.str_lstrip": "str_lstrip",
+            "core.str_rstrip": "str_rstrip",
+            "core.str_split": "str_split",
+            "core.str_join": "str_join",
+            "core.str_replace": "str_replace",
+            "core.str_startswith": "str_startswith",
+            "core.str_endswith": "str_endswith",
+            "core.str_contains": "str_contains",
+            "core.str_find": "str_find",
+            "core.str_char_at": "str_char_at",
+            "core.str_slice": "str_slice",
+            "core.str_to_chars": "str_to_chars",
+            "core.str_concat": "str_concat",
+            "core.str_repeat": "str_repeat",
+            "core.str_is_empty": "str_is_empty",
+            "core.str_trim": "str_trim",
+            "core.str_pad_left": "str_pad_left",
+            "core.str_pad_right": "str_pad_right",
+            "core.str_to_int": "str_to_int",
+            "core.str_to_float": "str_to_float",
+            "core.str_format": "str_format",
+            "core.map_keys": "core_map_keys",
+            "core.map_values": "core_map_values",
+            "core.map_has_key": "core_map_has_key",
+            "core.array_append": "core_array_append",
+            "core.array_pop": "core_array_pop",
         }
         intrinsic = mapping.get(key)
         if intrinsic is None:
@@ -711,8 +756,237 @@ def _is_finite(args: list[Any], **_: Any) -> bool:
     return math.isfinite(_math_number("is_finite", args[0]))
 
 
+def _str_upper(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_upper", args, min_n=1, max_n=1)
+    _expect_type("str_upper", args[0], "str")
+    return str(args[0]).upper()
+
+
+def _str_lower(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_lower", args, min_n=1, max_n=1)
+    _expect_type("str_lower", args[0], "str")
+    return str(args[0]).lower()
+
+
+def _str_strip(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_strip", args, min_n=1, max_n=2)
+    _expect_type("str_strip", args[0], "str")
+    chars = str(args[1]) if len(args) > 1 and args[1] is not None else None
+    return str(args[0]).strip(chars)
+
+
+def _str_lstrip(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_lstrip", args, min_n=1, max_n=2)
+    _expect_type("str_lstrip", args[0], "str")
+    chars = str(args[1]) if len(args) > 1 and args[1] is not None else None
+    return str(args[0]).lstrip(chars)
+
+
+def _str_rstrip(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_rstrip", args, min_n=1, max_n=2)
+    _expect_type("str_rstrip", args[0], "str")
+    chars = str(args[1]) if len(args) > 1 and args[1] is not None else None
+    return str(args[0]).rstrip(chars)
+
+
+def _str_split(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("str_split", args, min_n=1, max_n=3)
+    _expect_type("str_split", args[0], "str")
+    s = str(args[0])
+    sep = str(args[1]) if len(args) > 1 and args[1] is not None else None
+    maxsplit = int(args[2]) if len(args) > 2 and args[2] is not None else -1
+    return s.split(sep, maxsplit) if maxsplit >= 0 else s.split(sep)
+
+
+def _str_join(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_join", args, min_n=2, max_n=2)
+    _expect_type("str_join", args[0], "str")
+    _expect_type("str_join", args[1], "array")
+    return str(args[0]).join(str(x) for x in args[1])
+
+
+def _str_replace(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_replace", args, min_n=3, max_n=4)
+    _expect_type("str_replace", args[0], "str")
+    _expect_type("str_replace", args[1], "str")
+    _expect_type("str_replace", args[2], "str")
+    count = int(args[3]) if len(args) > 3 and args[3] is not None else -1
+    return str(args[0]).replace(str(args[1]), str(args[2]), count) if count >= 0 else str(args[0]).replace(str(args[1]), str(args[2]))
+
+
+def _str_startswith(args: list[Any], **_: Any) -> bool:
+    _ensure_arity("str_startswith", args, min_n=2, max_n=2)
+    _expect_type("str_startswith", args[0], "str")
+    _expect_type("str_startswith", args[1], "str")
+    return str(args[0]).startswith(str(args[1]))
+
+
+def _str_endswith(args: list[Any], **_: Any) -> bool:
+    _ensure_arity("str_endswith", args, min_n=2, max_n=2)
+    _expect_type("str_endswith", args[0], "str")
+    _expect_type("str_endswith", args[1], "str")
+    return str(args[0]).endswith(str(args[1]))
+
+
+def _str_contains(args: list[Any], **_: Any) -> bool:
+    _ensure_arity("str_contains", args, min_n=2, max_n=2)
+    _expect_type("str_contains", args[0], "str")
+    _expect_type("str_contains", args[1], "str")
+    return str(args[1]) in str(args[0])
+
+
+def _str_find(args: list[Any], **_: Any) -> int:
+    _ensure_arity("str_find", args, min_n=2, max_n=2)
+    _expect_type("str_find", args[0], "str")
+    _expect_type("str_find", args[1], "str")
+    return str(args[0]).find(str(args[1]))
+
+
+def _str_char_at(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_char_at", args, min_n=2, max_n=2)
+    _expect_type("str_char_at", args[0], "str")
+    _expect_type("str_char_at", args[1], "int")
+    s = str(args[0])
+    idx = int(args[1])
+    if idx < 0 or idx >= len(s):
+        raise IndexError(f"str_char_at: index {idx} out of range for string of length {len(s)}")
+    return s[idx]
+
+
+def _str_slice(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_slice", args, min_n=3, max_n=3)
+    _expect_type("str_slice", args[0], "str")
+    _expect_type("str_slice", args[1], "int")
+    _expect_type("str_slice", args[2], "int")
+    return str(args[0])[int(args[1]):int(args[2])]
+
+
+def _str_to_chars(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("str_to_chars", args, min_n=1, max_n=1)
+    _expect_type("str_to_chars", args[0], "str")
+    return list(str(args[0]))
+
+
+def _str_concat(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_concat", args, min_n=2, max_n=2)
+    _expect_type("str_concat", args[0], "str")
+    _expect_type("str_concat", args[1], "str")
+    return str(args[0]) + str(args[1])
+
+
+def _str_repeat(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_repeat", args, min_n=2, max_n=2)
+    _expect_type("str_repeat", args[0], "str")
+    _expect_type("str_repeat", args[1], "int")
+    return str(args[0]) * int(args[1])
+
+
+def _str_is_empty(args: list[Any], **_: Any) -> bool:
+    _ensure_arity("str_is_empty", args, min_n=1, max_n=1)
+    _expect_type("str_is_empty", args[0], "str")
+    return len(str(args[0])) == 0
+
+
+def _str_trim(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_trim", args, min_n=1, max_n=1)
+    _expect_type("str_trim", args[0], "str")
+    return str(args[0]).strip()
+
+
+def _str_pad_left(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_pad_left", args, min_n=2, max_n=3)
+    _expect_type("str_pad_left", args[0], "str")
+    _expect_type("str_pad_left", args[1], "int")
+    fill = str(args[2]) if len(args) > 2 and args[2] is not None else " "
+    return str(args[0]).rjust(int(args[1]), fill[0] if fill else " ")
+
+
+def _str_pad_right(args: list[Any], **_: Any) -> str:
+    _ensure_arity("str_pad_right", args, min_n=2, max_n=3)
+    _expect_type("str_pad_right", args[0], "str")
+    _expect_type("str_pad_right", args[1], "int")
+    fill = str(args[2]) if len(args) > 2 and args[2] is not None else " "
+    return str(args[0]).ljust(int(args[1]), fill[0] if fill else " ")
+
+
+def _str_to_int(args: list[Any], **_: Any) -> int:
+    _ensure_arity("str_to_int", args, min_n=1, max_n=2)
+    _expect_type("str_to_int", args[0], "str")
+    base = int(args[1]) if len(args) > 1 and args[1] is not None else 10
+    return int(str(args[0]), base)
+
+
+def _str_to_float(args: list[Any], **_: Any) -> float:
+    _ensure_arity("str_to_float", args, min_n=1, max_n=1)
+    _expect_type("str_to_float", args[0], "str")
+    return float(str(args[0]))
+
+
+def _str_format(args: list[Any], **_: Any) -> str:
+    import re
+    _ensure_arity("str_format", args, min_n=1)
+    _expect_type("str_format", args[0], "str")
+    template = str(args[0])
+    # If called as str_format(template, array) from ManV stdlib, unpack the array.
+    # If called variadically as str_format(template, v0, v1, ...), use args[1:] directly.
+    if len(args) == 2 and isinstance(args[1], list):
+        fmt_args: list[Any] = args[1]
+    else:
+        fmt_args = args[1:]
+    result = template
+    for i, val in enumerate(fmt_args):
+        result = result.replace(f"{{{i}}}", str(val))
+    idx = [0]
+
+    def replace_bare(m: re.Match[str]) -> str:
+        val = str(fmt_args[idx[0]]) if idx[0] < len(fmt_args) else m.group(0)
+        idx[0] += 1
+        return val
+
+    result = re.sub(r'\{\}', replace_bare, result)
+    return result
+
+
+def _core_map_keys(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("core_map_keys", args, min_n=1, max_n=1)
+    _expect_type("core_map_keys", args[0], "map")
+    return list(args[0].keys())
+
+
+def _core_map_values(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("core_map_values", args, min_n=1, max_n=1)
+    _expect_type("core_map_values", args[0], "map")
+    return list(args[0].values())
+
+
+def _core_map_has_key(args: list[Any], **_: Any) -> bool:
+    _ensure_arity("core_map_has_key", args, min_n=2, max_n=2)
+    _expect_type("core_map_has_key", args[0], "map")
+    return args[1] in args[0]
+
+
+def _core_array_append(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("core_array_append", args, min_n=2, max_n=2)
+    _expect_type("core_array_append", args[0], "array")
+    args[0].append(args[1])
+    return args[0]
+
+
+def _core_array_pop(args: list[Any], **_: Any) -> Any:
+    _ensure_arity("core_array_pop", args, min_n=1, max_n=2)
+    _expect_type("core_array_pop", args[0], "array")
+    if not args[0]:
+        raise IndexError("pop from empty array")
+    if len(args) == 2:
+        idx = args[1]
+        if not isinstance(idx, int):
+            raise TypeError("array_pop index must be int")
+        return args[0].pop(idx)
+    return args[0].pop()
+
+
 def _io_print(args: list[Any], *, stdout_write: Callable[[str], None] | None = None, **_: Any) -> None:
-    writer = stdout_write or (lambda s: None)
+    writer = stdout_write or (lambda _: None)
     parts = args
     if len(args) == 1 and isinstance(args[0], list):
         parts = args[0]
@@ -892,9 +1166,10 @@ def _syscall_invoke(args: list[Any], **_: Any) -> dict[str, Any]:
     platform_name = os.name
     argv = list(call_args)
     try:
+        _os_syscall = getattr(os, "syscall", None)
         if isinstance(target, int):
-            if hasattr(os, "syscall"):
-                result = os.syscall(int(target), *argv)
+            if _os_syscall is not None:
+                result = _os_syscall(int(target), *argv)
                 return {"ok": True, "result": result, "platform": platform_name}
             raise OSError("numeric syscall is not available on this platform")
 
@@ -902,11 +1177,11 @@ def _syscall_invoke(args: list[Any], **_: Any) -> dict[str, Any]:
             raise TypeError("syscall target must be int or str")
 
         name = target.strip()
-        if hasattr(os, "syscall"):
+        if _os_syscall is not None:
             # Named calls can be passed as numeric strings.
             try:
                 num = int(name)
-                result = os.syscall(num, *argv)
+                result = _os_syscall(num, *argv)
                 return {"ok": True, "result": result, "platform": platform_name}
             except Exception:
                 pass
@@ -1069,7 +1344,7 @@ def _cuda_last_error(args: list[Any], **_: Any) -> str:
 
 def _gpu_backends(args: list[Any], **_: Any) -> list[str]:
     _ensure_arity("gpu_backends", args, min_n=0, max_n=0)
-    return list_backends()
+    return [str(b) for b in list_backends()]
 
 
 def _gpu_capabilities(args: list[Any], **_: Any) -> dict[str, dict[str, Any]]:
@@ -1137,6 +1412,36 @@ def _register_defaults() -> None:
     register_intrinsic(IntrinsicSpec("is_nan", ["float"], "bool", mathfx, may_throw=False, std_only=False, pure_for_kernel=True))
     register_intrinsic(IntrinsicSpec("is_inf", ["float"], "bool", mathfx, may_throw=False, std_only=False, pure_for_kernel=True))
     register_intrinsic(IntrinsicSpec("is_finite", ["float"], "bool", mathfx, may_throw=False, std_only=False, pure_for_kernel=True))
+    strfx = {Effect.PURE}
+    register_intrinsic(IntrinsicSpec("str_upper", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_lower", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_strip", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_lstrip", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_rstrip", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_split", ["str", "str"], "array", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_join", ["str", "array"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_replace", ["str", "str", "str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_startswith", ["str", "str"], "bool", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_endswith", ["str", "str"], "bool", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_contains", ["str", "str"], "bool", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_find", ["str", "str"], "int", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_char_at", ["str", "int"], "str", strfx, may_throw=True))
+    register_intrinsic(IntrinsicSpec("str_slice", ["str", "int", "int"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_to_chars", ["str"], "array", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_concat", ["str", "str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_repeat", ["str", "int"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_is_empty", ["str"], "bool", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_trim", ["str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_pad_left", ["str", "int", "str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_pad_right", ["str", "int", "str"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_to_int", ["str"], "int", strfx, may_throw=True))
+    register_intrinsic(IntrinsicSpec("str_to_float", ["str"], "float", strfx, may_throw=True))
+    register_intrinsic(IntrinsicSpec("str_format", ["str", "array"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_map_keys", ["map"], "array", {Effect.PURE}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_map_values", ["map"], "array", {Effect.PURE}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_map_has_key", ["map", ANY_T], "bool", {Effect.PURE}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_array_append", ["array", ANY_T], "array", {Effect.PURE, Effect.ALLOCATES}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_array_pop", ["array"], ANY_T, {Effect.PURE}, may_throw=True))
     register_intrinsic(
         IntrinsicSpec("io_print", [ANY_T], "none", {Effect.IO, Effect.WRITES_MEMORY}, may_throw=True, deterministic=True)
     )
@@ -1243,6 +1548,35 @@ def _register_defaults() -> None:
     register_intrinsic_handler("is_nan", _is_nan)
     register_intrinsic_handler("is_inf", _is_inf)
     register_intrinsic_handler("is_finite", _is_finite)
+    register_intrinsic_handler("str_upper", _str_upper)
+    register_intrinsic_handler("str_lower", _str_lower)
+    register_intrinsic_handler("str_strip", _str_strip)
+    register_intrinsic_handler("str_lstrip", _str_lstrip)
+    register_intrinsic_handler("str_rstrip", _str_rstrip)
+    register_intrinsic_handler("str_split", _str_split)
+    register_intrinsic_handler("str_join", _str_join)
+    register_intrinsic_handler("str_replace", _str_replace)
+    register_intrinsic_handler("str_startswith", _str_startswith)
+    register_intrinsic_handler("str_endswith", _str_endswith)
+    register_intrinsic_handler("str_contains", _str_contains)
+    register_intrinsic_handler("str_find", _str_find)
+    register_intrinsic_handler("str_char_at", _str_char_at)
+    register_intrinsic_handler("str_slice", _str_slice)
+    register_intrinsic_handler("str_to_chars", _str_to_chars)
+    register_intrinsic_handler("str_concat", _str_concat)
+    register_intrinsic_handler("str_repeat", _str_repeat)
+    register_intrinsic_handler("str_is_empty", _str_is_empty)
+    register_intrinsic_handler("str_trim", _str_trim)
+    register_intrinsic_handler("str_pad_left", _str_pad_left)
+    register_intrinsic_handler("str_pad_right", _str_pad_right)
+    register_intrinsic_handler("str_to_int", _str_to_int)
+    register_intrinsic_handler("str_to_float", _str_to_float)
+    register_intrinsic_handler("str_format", _str_format)
+    register_intrinsic_handler("core_map_keys", _core_map_keys)
+    register_intrinsic_handler("core_map_values", _core_map_values)
+    register_intrinsic_handler("core_map_has_key", _core_map_has_key)
+    register_intrinsic_handler("core_array_append", _core_array_append)
+    register_intrinsic_handler("core_array_pop", _core_array_pop)
     register_intrinsic_handler("io_print", _io_print)
     register_intrinsic_handler("io_read_line", _io_read_line)
     register_intrinsic_handler("fs_exists", _fs_exists)

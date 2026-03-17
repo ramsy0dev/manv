@@ -73,7 +73,7 @@ def build_llvm_artifacts(
     runtime_c_path = out_dir / f"{stem}.{target.name}.runtime.c"
     runtime_obj_path = out_dir / f"{stem}.{target.name}.runtime{obj_ext}"
     exe_suffix = ".exe" if platform.system().lower() == "windows" else ""
-    exe_path = out_dir / f"{stem}.{target.name}{exe_suffix}"
+    exe_path = out_dir / f"{stem}{exe_suffix}"
 
     if emit_asm:
         _run(

@@ -17,6 +17,8 @@ from . import ast
 from .diagnostics import Span
 from .hlir import HBasicBlock, HFunction, HInstruction, HModule, HTerminator, Provenance, SourceSpan
 from .intrinsics import intrinsic_effect_names, resolve_call_alias_name, resolve_intrinsic, resolve_intrinsic_name_from_callee
+from .lexer import Lexer
+from .parser import Parser
 from .semantics import GpuDecoratorConfig, has_static_method_decorator, normalize_gpu_decorator, normalize_type_name
 
 
@@ -217,6 +219,34 @@ class HLIRLowerer:
                             known_callables=known_callables,
                         )
                     )
+                continue
+
+            if isinstance(decl, ast.MacroDeclStub):
+                # Lower macro body as a regular function so call sites can
+                # emit a standard `call` instruction targeting it.
+                param_str = ", ".join(decl.params)
+                indented_body = "\n    ".join(decl.body) if decl.body else "return none"
+                fn_src = f"fn {decl.name}({param_str}):\n    {indented_body}\n"
+                try:
+                    toks = Lexer(source=fn_src, file=source_name).tokenize()
+                    macro_prog = Parser(tokens=toks, file=source_name, source_lines=fn_src.splitlines()).parse()
+                    macro_fn_decl = macro_prog.declarations[0]
+                    if not isinstance(macro_fn_decl, ast.FnDecl):
+                        continue
+                except Exception:
+                    continue
+                functions.append(
+                    self._lower_function_decl(
+                        fn_name=decl.name,
+                        source_name=source_name,
+                        params=[{"name": p.name, "type": normalize_type_name(p.type_name), "span": p.span} for p in macro_fn_decl.params],
+                        return_type=None,
+                        body=macro_fn_decl.body,
+                        gpu_functions=gpu_functions,
+                        static_methods=static_methods,
+                        known_callables=known_callables,
+                    )
+                )
 
         return HModule(
             version="0.1",
@@ -448,6 +478,52 @@ class HLIRLowerer:
             state.emit(HInstruction(op="store_var", args=[stmt.name, value], effects=["writes_memory"]), node=stmt)
             return
 
+        if isinstance(stmt, ast.AugAssignStmt):
+            current = state.new_temp()
+            state.emit(HInstruction(op="load_var", dest=current, attrs={"name": stmt.name}, effects=["reads_memory"]), node=stmt)
+            rhs = self._lower_expr(state, stmt.value)
+            result = state.new_temp()
+            op = stmt.op[:-1]  # strip '=' to get base op
+            state.emit(HInstruction(op="binary", dest=result, args=[current, rhs], attrs={"op": op}, effects=[]), node=stmt)
+            state.emit(HInstruction(op="store_var", args=[stmt.name, result], effects=["writes_memory"]), node=stmt)
+            return
+
+        if isinstance(stmt, ast.AugAssignAttrStmt):
+            target = self._lower_expr(state, stmt.target)
+            current = state.new_temp()
+            state.emit(HInstruction(op="get_attr", dest=current, args=[target], attrs={"attr": stmt.attr}, effects=["reads_memory", "dynamic_dispatch", "may_throw"]), node=stmt)
+            rhs = self._lower_expr(state, stmt.value)
+            result = state.new_temp()
+            op = stmt.op[:-1]
+            state.emit(HInstruction(op="binary", dest=result, args=[current, rhs], attrs={"op": op}, effects=[]), node=stmt)
+            state.emit(HInstruction(op="set_attr", args=[target, result], attrs={"attr": stmt.attr}, effects=["writes_memory", "dynamic_dispatch", "may_throw"]), node=stmt)
+            return
+
+        if isinstance(stmt, ast.AugAssignIndexStmt):
+            target = self._lower_expr(state, stmt.target)
+            index = self._lower_expr(state, stmt.index)
+            current = state.new_temp()
+            state.emit(HInstruction(op="get_index", dest=current, args=[target, index], effects=["reads_memory", "may_throw"]), node=stmt)
+            rhs = self._lower_expr(state, stmt.value)
+            result = state.new_temp()
+            op = stmt.op[:-1]
+            state.emit(HInstruction(op="binary", dest=result, args=[current, rhs], attrs={"op": op}, effects=[]), node=stmt)
+            state.emit(HInstruction(op="set_index", args=[target, index, result], effects=["writes_memory", "may_throw"]), node=stmt)
+            return
+
+        if isinstance(stmt, ast.WithStmt):
+            out = state.new_temp()
+            ctx = self._lower_expr(state, stmt.context)
+            state.emit(HInstruction(op="with_enter", dest=out, args=[ctx], effects=["reads_memory", "writes_memory", "dynamic_dispatch", "may_throw"]), node=stmt)
+            if stmt.bind_name is not None:
+                if stmt.bind_name not in state.declared_vars:
+                    state.emit(HInstruction(op="declare_var", attrs={"name": stmt.bind_name, "type": None}, effects=["writes_memory"]), node=stmt)
+                    state.declared_vars.add(stmt.bind_name)
+                state.emit(HInstruction(op="store_var", args=[stmt.bind_name, out], effects=["writes_memory"]), node=stmt)
+            self._lower_statements(state, stmt.body)
+            state.emit(HInstruction(op="with_exit", args=[ctx], effects=["reads_memory", "writes_memory", "dynamic_dispatch", "may_throw"]), node=stmt)
+            return
+
         if isinstance(stmt, ast.SetAttrStmt):
             target = self._lower_expr(state, stmt.target)
             value = self._lower_expr(state, stmt.value)
@@ -545,6 +621,31 @@ class HLIRLowerer:
                 state.terminate("br", [continue_label], node=stmt)
             else:
                 state.terminate("unreachable", [], node=stmt)
+            return
+
+        if isinstance(stmt, ast.FnDecl):
+            # Local / nested function declaration — emit as a closure value.
+            out = state.new_temp()
+            state.emit(
+                HInstruction(
+                    op="make_closure",
+                    dest=out,
+                    attrs={
+                        "name": stmt.name,
+                        "params": [p.name for p in stmt.params],
+                        "return_type": stmt.return_type,
+                    },
+                    effects=["writes_memory"],
+                ),
+                node=stmt,
+            )
+            if stmt.name not in state.declared_vars:
+                state.emit(
+                    HInstruction(op="declare_var", attrs={"name": stmt.name, "type": "fn"}, effects=["writes_memory"]),
+                    node=stmt,
+                )
+                state.declared_vars.add(stmt.name)
+            state.emit(HInstruction(op="store_var", args=[stmt.name, out], effects=["writes_memory"]), node=stmt)
             return
 
         state.emit(HInstruction(op="unsupported_stmt", attrs={"kind": type(stmt).__name__}, effects=["may_throw"]), node=stmt)
@@ -795,6 +896,23 @@ class HLIRLowerer:
         state.set_block(exit_label)
 
     def _lower_expr(self, state: _LowerState, expr: Any) -> str:
+        if isinstance(expr, ast.LambdaExpr):
+            out = state.new_temp()
+            state.emit(
+                HInstruction(
+                    op="make_closure",
+                    dest=out,
+                    attrs={
+                        "name": "<lambda>",
+                        "params": [p.name for p in expr.params],
+                        "return_type": expr.return_type,
+                    },
+                    effects=["reads_memory"],
+                ),
+                node=expr,
+            )
+            return out
+
         if isinstance(expr, ast.LiteralExpr):
             out = state.new_temp()
             state.emit(HInstruction(op="const", dest=out, type_name=expr.literal_type, attrs={"value": expr.value}), node=expr)
@@ -969,6 +1087,24 @@ class HLIRLowerer:
                     args=[base],
                     attrs={"attr": expr.attr, "attrsite_id": state.next_attrsite_id()},
                     effects=["dynamic_dispatch", "may_throw"],
+                ),
+                node=expr,
+            )
+            return out
+
+        if isinstance(expr, ast.MacroCallExpr):
+            # Macros are lowered as direct calls to their generated HLIR
+            # function, which was registered during lower_program.
+            arg_values = [self._lower_expr(state, arg) for arg in expr.args]
+            callsite_id = state.next_callsite_id()
+            out = state.new_temp()
+            state.emit(
+                HInstruction(
+                    op="call",
+                    dest=out,
+                    args=[expr.name, *arg_values],
+                    attrs={"callsite": callsite_id, "is_macro": True},
+                    effects=["may_throw"],
                 ),
                 node=expr,
             )

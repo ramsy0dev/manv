@@ -127,6 +127,15 @@ class MacroDeclStub:
 
 
 @dataclass
+class MacroCallExpr:
+    """Call-site node for macro invocations: ``name!(arg1, arg2)``."""
+
+    name: str
+    args: list[Any]
+    span: Span
+
+
+@dataclass
 class LetStmt:
     name: str
     type_name: str | None
@@ -138,6 +147,32 @@ class LetStmt:
 @dataclass
 class AssignStmt:
     name: str
+    value: Any
+    span: Span
+
+
+@dataclass
+class AugAssignStmt:
+    name: str
+    op: str
+    value: Any
+    span: Span
+
+
+@dataclass
+class AugAssignAttrStmt:
+    target: Any
+    attr: str
+    op: str
+    value: Any
+    span: Span
+
+
+@dataclass
+class AugAssignIndexStmt:
+    target: Any
+    index: Any
+    op: str
     value: Any
     span: Span
 
@@ -200,6 +235,7 @@ class WhileStmt:
     condition: Any
     body: list[Any]
     span: Span
+    else_body: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -215,6 +251,7 @@ class ForStmt:
     iterable: Any
     body: list[Any]
     span: Span
+    else_body: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -230,6 +267,29 @@ class BreakStmt:
 
 @dataclass
 class ContinueStmt:
+    span: Span
+
+
+@dataclass
+class WithStmt:
+    context: Any
+    bind_name: str | None
+    body: list[Any]
+    span: Span
+
+
+@dataclass
+class CaseClause:
+    pattern: Any
+    guard: Any | None
+    body: list[Any]
+    span: Span
+
+
+@dataclass
+class MatchStmt:
+    subject: Any
+    cases: list[CaseClause]
     span: Span
 
 
@@ -325,6 +385,23 @@ class MapExpr:
     span: Span
 
 
+@dataclass
+class LambdaExpr:
+    """Anonymous function expression: ``fn(params) -> type: body``.
+
+    Why this exists:
+    - First-class functions and closures require the ability to create a
+      function value anywhere an expression is expected.
+    - The body shares syntax with FnDecl; the only difference is there is
+      no name token and the node lives in expression position.
+    """
+
+    params: list[Param]
+    return_type: str | None
+    body: list[Any]
+    span: Span
+
+
 # Backward compatible aliases retained for consumers/tests that still import the old names.
 TypeDeclStub = TypeDecl
 ImplDeclStub = ImplDecl
@@ -336,7 +413,7 @@ def _convert(value: Any) -> Any:
     if isinstance(value, list):
         return [_convert(v) for v in value]
     if is_dataclass(value):
-        data: dict[str, Any] = {"node": value.__class__.__name__}
+        data: dict[str, Any] = {"node": type(value).__name__}
         for f in fields(value):
             data[f.name] = _convert(getattr(value, f.name))
         return data

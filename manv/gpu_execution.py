@@ -20,9 +20,12 @@ import math
 from typing import Any, Callable
 
 from .backends.cuda import analyze_hlir_gpu_function
+from .backends.cuda.runtime import cuda_is_available
 from .gpu_dispatch import backend_selection_report, dispatch_kernel_ir
 from .graph_ir import extract_hlir_gpu_regions
 from .hlir import HFunction, HModule
+
+__all__ = ["cuda_is_available", "GpuExecutionEngine", "GpuExecutionDecision", "lower_hlir_function_to_backend_ir"]
 
 
 @dataclass
@@ -273,8 +276,11 @@ def _build_reduction_kernels(
     kernel_index: int,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     reduction_op = str(region.get("reduction_op", "+"))
-    if reduction_op != "+":
-        raise RuntimeError(f"only '+' reductions are currently supported, got {reduction_op!r}")
+    _SUPPORTED_REDUCTION_OPS = {"+", "*", "min", "max"}
+    if reduction_op not in _SUPPORTED_REDUCTION_OPS:
+        raise RuntimeError(
+            f"unsupported reduction operator {reduction_op!r}; supported: {sorted(_SUPPORTED_REDUCTION_OPS)}"
+        )
 
     length = _resolve_region_extent_length(region, function, args)
     block_x = 256
@@ -497,6 +503,23 @@ def _emit_expr_ops(expr: Any, param_types: dict[str, str], ops: list[dict[str, A
                 "id": out_id,
                 "opcode": f"binary::{expr.get('op', '+')}",
                 "inputs": [lhs, rhs],
+                "outputs": [out_id],
+                "attrs": {},
+                "dtype": _expr_dtype(expr, param_types),
+                "memory_space": "private",
+                "provenance": None,
+            }
+        )
+        return out_id
+
+    if kind == "unary":
+        operand = _emit_expr_ops(expr.get("operand"), param_types, ops, loop_value=loop_value)
+        out_id = f"unary_{len(ops)}"
+        ops.append(
+            {
+                "id": out_id,
+                "opcode": f"unary::{expr.get('op', '-')}",
+                "inputs": [operand],
                 "outputs": [out_id],
                 "attrs": {},
                 "dtype": _expr_dtype(expr, param_types),

@@ -269,7 +269,7 @@ def test_compile_host_report_and_native_fallback(tmp_path: Path) -> None:
         return
 
     assert result.exit_code == 0
-    native_exe = project / "src" / ".manv" / "target" / host_target_name() / ("main.exe" if sys.platform == "win32" else "main")
+    native_exe = project / "src" / ".manv" / "target" / ("main.exe" if sys.platform == "win32" else "main")
     if detect_toolchain() is not None:
         assert native_exe.exists()
 

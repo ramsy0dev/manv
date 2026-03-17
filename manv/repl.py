@@ -46,7 +46,7 @@ class ReplSession:
             elif isinstance(decl, ast.ImplDecl):
                 self.out.write(f"registered impl {decl.target}\n")
             elif isinstance(decl, ast.MacroDeclStub):
-                self.out.write(f"stub accepted: {type(decl).__name__}\n")
+                self.out.write(f"registered macro {decl.name}\n")
 
         for stmt in program.statements:
             value = self.interpreter.execute_stmt(stmt, self.interpreter.global_env)

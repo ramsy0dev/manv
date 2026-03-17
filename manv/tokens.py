@@ -69,9 +69,11 @@ KEYWORDS = {
     "syscall",
     "gpu",
     "memory",
+    "with",
+    "match",
 }
 
-DOUBLE_CHAR_OPS = {"->", "==", "!=", "<=", ">=", "&&", "||", ".."}
+DOUBLE_CHAR_OPS = {"->", "==", "!=", "<=", ">=", "&&", "||", "..", "+=", "-=", "*=", "/=", "%="}
 SINGLE_CHAR_OPS = {
     "@",
     "+",

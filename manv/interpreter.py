@@ -14,7 +14,7 @@ import io
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NoReturn, TextIO
 
 from . import ast
 from .diagnostics import ManvError, diag
@@ -119,6 +119,7 @@ class Interpreter:
         self.stdout = stdout or io.StringIO()
         self.global_env = Environment()
         self.functions: dict[str, FunctionValue] = {}
+        self._macros: dict[str, ast.MacroDeclStub] = {}
         self.types: dict[str, TypeObject] = {}
         self.type_constants: dict[str, set[str]] = {}
         self.call_stack: list[dict[str, Any]] = []
@@ -252,7 +253,7 @@ class Interpreter:
                 for method in decl.methods:
                     self._register_type_method(type_obj, method)
             elif isinstance(decl, ast.MacroDeclStub):
-                continue
+                self._macros[decl.name] = decl
             else:
                 raise unsupported_feature(type(decl).__name__, self.file, 1, 1)
 
@@ -295,6 +296,12 @@ class Interpreter:
             env.define(stmt.name, value)
             return None
 
+        if isinstance(stmt, ast.FnDecl):
+            # Local function declaration — creates a closure capturing the current env.
+            fn_val = FunctionValue(decl=stmt, globals_env=env)
+            env.define(stmt.name, fn_val)
+            return None
+
         if isinstance(stmt, ast.ImportStmt):
             # Import statement binds module object under alias or leaf name.
             module = self._import_module(stmt.module, stmt.span, level=stmt.level)
@@ -317,6 +324,49 @@ class Interpreter:
                 env.assign(stmt.name, value)
             except KeyError:
                 self._raise_runtime("RuntimeError", f"undefined variable '{stmt.name}'", stmt.span)
+            return None
+
+        if isinstance(stmt, ast.AugAssignStmt):
+            try:
+                current = env.lookup(stmt.name)
+            except KeyError:
+                self._raise_runtime("RuntimeError", f"undefined variable '{stmt.name}'", stmt.span)
+            rhs = self.eval_expr(stmt.value, env)
+            op = stmt.op[:-1]  # strip '=' to get '+', '-', '*', '/', '%'
+            result = eval_binary(op, current, rhs)
+            try:
+                env.assign(stmt.name, result)
+            except KeyError:
+                self._raise_runtime("RuntimeError", f"undefined variable '{stmt.name}'", stmt.span)
+            return None
+
+        if isinstance(stmt, ast.AugAssignAttrStmt):
+            target = self.eval_expr(stmt.target, env)
+            current = self._lookup_attr(target, stmt.attr, stmt.span)
+            rhs = self.eval_expr(stmt.value, env)
+            op = stmt.op[:-1]
+            result = eval_binary(op, current, rhs)
+            self._store_attr(target, stmt.attr, result, stmt.span)
+            return None
+
+        if isinstance(stmt, ast.AugAssignIndexStmt):
+            target = self.eval_expr(stmt.target, env)
+            index = self.eval_expr(stmt.index, env)
+            if isinstance(target, list):
+                idx = self._normalize_list_index(target, index, stmt.span)
+                current = target[idx]
+                rhs = self.eval_expr(stmt.value, env)
+                op = stmt.op[:-1]
+                result = eval_binary(op, current, rhs)
+                target[idx] = result
+            elif isinstance(target, dict):
+                current = target.get(index)
+                rhs = self.eval_expr(stmt.value, env)
+                op = stmt.op[:-1]
+                result = eval_binary(op, current, rhs)
+                target[index] = result
+            else:
+                self._raise_runtime("TypeError", "augmented index assignment target must be array or map", stmt.span)
             return None
 
         if isinstance(stmt, ast.SetAttrStmt):
@@ -368,6 +418,7 @@ class Interpreter:
 
         if isinstance(stmt, ast.WhileStmt):
             guard = 0
+            broke = False
             while self.eval_expr(stmt.condition, env):
                 guard += 1
                 if guard > 1_000_000:
@@ -379,7 +430,43 @@ class Interpreter:
                 except ContinueSignal:
                     continue
                 except BreakSignal:
+                    broke = True
                     break
+            if not broke and stmt.else_body:
+                else_env = Environment(parent=env)
+                for inner in stmt.else_body:
+                    self.execute_stmt(inner, else_env, in_loop=in_loop)
+            return None
+
+        if isinstance(stmt, ast.ForStmt):
+            if isinstance(stmt.iterable, ast.RangeExpr):
+                raw_start = self.eval_expr(stmt.iterable.start, env)
+                raw_stop = self.eval_expr(stmt.iterable.stop, env)
+                if not isinstance(raw_start, int) or not isinstance(raw_stop, int):
+                    self._raise_runtime("TypeError", "range bounds must be integers", stmt.span)
+                items: list[object] = list(range(raw_start, raw_stop))
+            else:
+                iterable = self.eval_expr(stmt.iterable, env)
+                if isinstance(iterable, list):
+                    items = list(iterable)
+                else:
+                    self._raise_runtime("TypeError", "for loop iterable must be an array or range", stmt.span)
+            broke = False
+            for item in items:
+                loop_env = Environment(parent=env)
+                loop_env.define(stmt.var_name, item)
+                try:
+                    for inner in stmt.body:
+                        self.execute_stmt(inner, loop_env, in_loop=True)
+                except ContinueSignal:
+                    continue
+                except BreakSignal:
+                    broke = True
+                    break
+            if not broke and stmt.else_body:
+                else_env = Environment(parent=env)
+                for inner in stmt.else_body:
+                    self.execute_stmt(inner, else_env, in_loop=in_loop)
             return None
 
         if isinstance(stmt, ast.ExprStmt):
@@ -394,6 +481,81 @@ class Interpreter:
             if not in_loop:
                 self._raise_runtime("RuntimeError", "'continue' used outside loop", stmt.span)
             raise ContinueSignal()
+
+        if isinstance(stmt, ast.WithStmt):
+            ctx_value = self.eval_expr(stmt.context, env)
+            enter_val = None
+            if isinstance(ctx_value, InstanceObject):
+                enter_method = ctx_value.attrs.get("__enter__")
+                if enter_method is None:
+                    type_obj = ctx_value.type_obj
+                    if type_obj is not None:
+                        enter_method = type_obj.methods.get("__enter__")
+                if enter_method is not None:
+                    enter_val = self._call_function(enter_method, [ctx_value])
+            with_env = Environment(parent=env)
+            if stmt.bind_name is not None:
+                with_env.define(stmt.bind_name, enter_val if enter_val is not None else ctx_value)
+            exc_to_raise = None
+            try:
+                for inner in stmt.body:
+                    self.execute_stmt(inner, with_env, in_loop=in_loop)
+            except RaiseSignal as rs:
+                exc_to_raise = rs
+            finally:
+                if isinstance(ctx_value, InstanceObject):
+                    exit_method = ctx_value.attrs.get("__exit__")
+                    if exit_method is None:
+                        type_obj = ctx_value.type_obj
+                        if type_obj is not None:
+                            exit_method = type_obj.methods.get("__exit__")
+                    if exit_method is not None:
+                        self._call_function(exit_method, [ctx_value, None, None, None])
+            if exc_to_raise is not None:
+                raise exc_to_raise
+            return None
+
+        if isinstance(stmt, ast.MatchStmt):
+            subject = self.eval_expr(stmt.subject, env)
+            for case in stmt.cases:
+                pattern = case.pattern
+                matched = False
+                if isinstance(pattern, ast.IdentifierExpr) and pattern.name == "_":
+                    matched = True
+                elif isinstance(pattern, ast.LiteralExpr):
+                    matched = (subject == pattern.value)
+                elif isinstance(pattern, ast.IdentifierExpr):
+                    try:
+                        pat_val = env.lookup(pattern.name)
+                        matched = (subject == pat_val)
+                    except KeyError:
+                        matched = True
+                        case_env = Environment(parent=env)
+                        case_env.define(pattern.name, subject)
+                        if case.guard is not None:
+                            if not self.eval_expr(case.guard, case_env):
+                                matched = False
+                        if matched:
+                            for inner in case.body:
+                                self.execute_stmt(inner, case_env, in_loop=in_loop)
+                            return None
+                        continue
+                else:
+                    try:
+                        pat_val = self.eval_expr(pattern, env)
+                        matched = (subject == pat_val)
+                    except Exception:
+                        matched = False
+                if matched:
+                    if case.guard is not None:
+                        case_env = Environment(parent=env)
+                        if not self.eval_expr(case.guard, case_env):
+                            continue
+                    case_env = Environment(parent=env)
+                    for inner in case.body:
+                        self.execute_stmt(inner, case_env, in_loop=in_loop)
+                    return None
+            return None
 
         if isinstance(stmt, ast.UnsupportedStmt):
             raise unsupported_feature(stmt.feature, self.file, stmt.span.line, stmt.span.column, stmt.detail)
@@ -462,6 +624,17 @@ class Interpreter:
 
         if isinstance(expr, ast.LiteralExpr):
             return expr.value
+
+        if isinstance(expr, ast.LambdaExpr):
+            # Create an anonymous FnDecl stub so we can reuse FunctionValue.
+            stub = ast.FnDecl(
+                name="<lambda>",
+                params=expr.params,
+                return_type=expr.return_type,
+                body=expr.body,
+                span=expr.span,
+            )
+            return FunctionValue(decl=stub, globals_env=env)
 
         if isinstance(expr, ast.IdentifierExpr):
             if expr.name == "std":
@@ -582,6 +755,31 @@ class Interpreter:
             callee = self.eval_expr(expr.callee, env)
             return self._call_value(callee, args, expr.span)
 
+        if isinstance(expr, ast.MacroCallExpr):
+            macro = self._macros.get(expr.name)
+            if macro is None:
+                self._raise_runtime("RuntimeError", f"undefined macro '{expr.name}'", expr.span)
+            if len(expr.args) != len(macro.params):
+                self._raise_runtime(
+                    "TypeError",
+                    f"macro '{expr.name}' expects {len(macro.params)} argument(s), got {len(expr.args)}",
+                    expr.span,
+                )
+            arg_values = [self.eval_expr(arg, env) for arg in expr.args]
+            # Re-parse the macro body as a function so the body executes in a
+            # fresh local scope with params bound to the evaluated arguments.
+            param_str = ", ".join(macro.params)
+            indented_body = "\n    ".join(macro.body) if macro.body else "return none"
+            fn_src = f"fn __macro_{macro.name}__({param_str}):\n    {indented_body}\n"
+            try:
+                toks = Lexer(source=fn_src, file=f"<macro:{macro.name}>").tokenize()
+                macro_prog = Parser(tokens=toks, file=f"<macro:{macro.name}>", source_lines=fn_src.splitlines()).parse()
+                fn_decl = macro_prog.declarations[0]
+            except Exception as exc:
+                self._raise_runtime("RuntimeError", f"macro '{macro.name}' body parse error: {exc}", expr.span)
+            macro_fn = FunctionValue(decl=fn_decl, globals_env=self.global_env)
+            return self._call_function(macro_fn, arg_values)
+
         self._raise_runtime("RuntimeError", f"unsupported expression '{type(expr).__name__}'", self._span_of(expr))
 
     def _resolve_unshadowed_call_alias(self, callee: ast.IdentifierExpr, env: Environment) -> str | None:
@@ -609,6 +807,9 @@ class Interpreter:
         if isinstance(callee, BoundMethodObject):
             return self._call_function(callee.function, [callee.receiver, *args])
         if isinstance(callee, TypeObject):
+            cast = self._try_primitive_cast(callee, args, span)
+            if cast is not None:
+                return cast
             return self._construct_instance(callee, args, span)
         if isinstance(callee, IntrinsicCallable):
             return self._invoke_intrinsic(callee.name, args, span)
@@ -616,7 +817,46 @@ class Interpreter:
             return self._invoke_intrinsic(callee.intrinsic, args, span)
         self._raise_runtime("TypeError", "call target is not callable", span)
 
+    def _try_primitive_cast(self, type_obj: TypeObject, args: list[Any], span: Any) -> Any | None:
+        """Handle int(), float(), str(), bool() type-cast calls on primitive types."""
+        if len(args) != 1:
+            return None
+        name = type_obj.name
+        val = args[0]
+        if name == "float":
+            if isinstance(val, float):
+                return val
+            if isinstance(val, int):
+                return float(val)
+            if isinstance(val, str):
+                try:
+                    return float(val)
+                except ValueError:
+                    self._raise_runtime("ValueError", f"cannot convert {val!r} to float", span)
+            return None
+        if name == "int":
+            if isinstance(val, int):
+                return val
+            if isinstance(val, float):
+                return int(val)
+            if isinstance(val, str):
+                try:
+                    return int(val)
+                except ValueError:
+                    self._raise_runtime("ValueError", f"cannot convert {val!r} to int", span)
+            return None
+        if name == "str":
+            if isinstance(val, str):
+                return val
+            return str(val)
+        if name == "bool":
+            if isinstance(val, bool):
+                return val
+            return bool(val)
+        return None
+
     def _construct_instance(self, type_obj: TypeObject, args: list[Any], span: Any) -> InstanceObject:
+        instance: InstanceObject
         try:
             instance = self.heap.allocate(type_obj.name, InstanceObject(type_obj=type_obj))
         except OutOfMemoryError as exc:
@@ -701,7 +941,6 @@ class Interpreter:
                     f"instance method '{base.name}.{attr}' requires an object; mark it @static_method to call it on the type",
                     span,
                 )
-                return method
             self._raise_runtime("AttributeError", f"type '{base.name}' has no attribute '{attr}'", span)
         if isinstance(base, ModuleObject):
             if attr in base.exports:
@@ -858,7 +1097,7 @@ class Interpreter:
             return invoke_intrinsic(
                 name,
                 args,
-                stdout_write=self.stdout.write,
+                stdout_write=lambda s: (self.stdout.write(s), None)[1],
                 stdin_readline=lambda: "",
                 gc_hooks=self._gc_intrinsic_hooks(),
             )
@@ -902,7 +1141,7 @@ class Interpreter:
         except OutOfMemoryError as exc:
             self._raise_runtime("OutOfMemoryError", str(exc), self._span_of(value))
 
-    def _raise_runtime(self, type_name: str, message: str, span: Any, payload: Any = None, code: int | None = None) -> None:
+    def _raise_runtime(self, type_name: str, message: str, span: Any, payload: Any = None, code: int | None = None) -> NoReturn:
         t = self.types.get(type_name) or self.types["RuntimeError"]
         stack = self._capture_stacktrace()
         try:

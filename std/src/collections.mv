@@ -1,0 +1,101 @@
+# Bundled ManV `collections` module.
+#
+# Why this file exists:
+# - Provides common collection algorithms over arrays and maps.
+# - Uses __intrin.core_array_append for safe dynamic array growth.
+# - Provides map inspection helpers via __intrin.core_map_* intrinsics.
+
+fn array_push(arr: array, item) -> array:
+    "Returns a new array with item appended."
+    return __intrin.core_array_append(arr, item)
+
+fn array_last(arr: array):
+    "Returns the last element of the array. Raises IndexError if empty."
+    return __intrin.core_array_pop(arr)
+
+fn array_contains(arr: array, item) -> bool:
+    "Returns true if item is in the array."
+    let i = 0
+    while i < len(arr):
+        if arr[i] == item:
+            return true
+        i = i + 1
+    return false
+
+fn array_index_of(arr: array, item) -> int:
+    "Returns the first index of item, or -1 if not found."
+    let i = 0
+    while i < len(arr):
+        if arr[i] == item:
+            return i
+        i = i + 1
+    return -1
+
+fn array_reverse(arr: array) -> array:
+    "Returns a new reversed array."
+    let n = len(arr)
+    let result = []
+    let i = n - 1
+    while i >= 0:
+        result = __intrin.core_array_append(result, arr[i])
+        i = i - 1
+    return result
+
+fn array_slice(arr: array, start: int, stop: int) -> array:
+    "Returns a sub-array from start to stop (exclusive)."
+    let result = []
+    let i = start
+    while i < stop:
+        result = __intrin.core_array_append(result, arr[i])
+        i = i + 1
+    return result
+
+fn array_map(arr: array, fn_val) -> array:
+    "Applies fn_val to each element and returns the results."
+    let result = []
+    let i = 0
+    while i < len(arr):
+        result = __intrin.core_array_append(result, fn_val(arr[i]))
+        i = i + 1
+    return result
+
+fn array_filter(arr: array, pred) -> array:
+    "Returns elements for which pred returns true."
+    let result = []
+    let i = 0
+    while i < len(arr):
+        if pred(arr[i]):
+            result = __intrin.core_array_append(result, arr[i])
+        i = i + 1
+    return result
+
+fn array_reduce(arr: array, fn_val, initial):
+    "Reduces array to a single value using fn_val(accumulator, element)."
+    let acc = initial
+    let i = 0
+    while i < len(arr):
+        acc = fn_val(acc, arr[i])
+        i = i + 1
+    return acc
+
+fn array_count(arr: array, pred) -> int:
+    "Returns the number of elements for which pred returns true."
+    let count = 0
+    let i = 0
+    while i < len(arr):
+        if pred(arr[i]):
+            count = count + 1
+        i = i + 1
+    return count
+
+fn map_keys(m: map) -> array:
+    "Returns all keys in the map as an array."
+    return __intrin.core_map_keys(m)
+
+fn map_values(m: map) -> array:
+    "Returns all values in the map as an array."
+    return __intrin.core_map_values(m)
+
+fn map_has_key(m: map, key) -> bool:
+    "Returns true if the key exists in the map."
+    return __intrin.core_map_has_key(m, key)

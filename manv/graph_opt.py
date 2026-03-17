@@ -25,6 +25,7 @@ def optimize_graph_ir(graph_ir: dict[str, Any]) -> dict[str, Any]:
     dead_nodes_removed = 0
     cse_total = 0
     fusion_total = 0
+    memory_reuse_total = 0
 
     for fn in graph_ir.get("functions", []):
         nodes = fn.get("nodes", [])
@@ -32,25 +33,27 @@ def optimize_graph_ir(graph_ir: dict[str, Any]) -> dict[str, Any]:
         cse_count = _common_subexpression_elimination(fn)
         fusion_count = _effect_safe_fusion(fn)
         prune_count = _dead_node_elimination(fn)
+        reuse_count = _memory_reuse(fn)
         fn["optimization"] = {
             "constant_folding": fold_count,
             "cse": cse_count,
             "fusion": fusion_count,
             "layout_normalization": 0,
-            "memory_reuse": 0,
+            "memory_reuse": reuse_count,
             "dead_nodes_removed": prune_count,
         }
         constant_folding += fold_count
         cse_total += cse_count
         fusion_total += fusion_count
         dead_nodes_removed += prune_count
+        memory_reuse_total += reuse_count
 
     graph_ir["optimization"] = {
         "constant_folding": constant_folding,
         "cse": cse_total,
         "fusion": fusion_total,
         "layout_normalization": 0,
-        "memory_reuse": 0,
+        "memory_reuse": memory_reuse_total,
         "dead_nodes_removed": dead_nodes_removed,
     }
     return graph_ir
@@ -194,6 +197,74 @@ def _dead_node_elimination(function_graph: dict[str, Any]) -> int:
     ]
     after = len(function_graph["nodes"])
     return max(0, before - after)
+
+
+def _memory_reuse(function_graph: dict[str, Any]) -> int:
+    """Identify same-dtype, same-size alloc nodes that can reuse a freed buffer.
+
+    Walk nodes in declaration order (which approximates topological order for
+    straight-line code).  Once the last consumer of an alloc has been passed,
+    mark the buffer as free.  When a later alloc with identical dtype and size
+    appears, re-use the free slot and record the reuse in the node's attrs so
+    downstream passes can skip redundant allocations.
+    """
+    nodes: list[dict[str, Any]] = function_graph.get("nodes", [])
+    reused = 0
+
+    # Collect alloc nodes: op starts with "alloc"
+    alloc_ids: list[str] = [
+        str(node.get("id"))
+        for node in nodes
+        if str(node.get("op", "")).startswith("alloc")
+    ]
+    if len(alloc_ids) < 2:
+        return 0
+
+    # Index nodes by id for quick lookup.
+    node_by_id: dict[str, dict[str, Any]] = {str(n.get("id")): n for n in nodes}
+
+    # Compute last-use position for each alloc.
+    last_use: dict[str, int] = {}
+    for pos, node in enumerate(nodes):
+        for inp in node.get("inputs", []):
+            inp_str = str(inp)
+            if inp_str in alloc_ids:
+                last_use[inp_str] = pos
+
+    # Free-list: maps (dtype, size) -> list of alloc_ids that are now free.
+    free_pool: dict[tuple[str, Any], list[str]] = {}
+
+    freed_at: dict[str, int] = {}
+    for alloc_id in alloc_ids:
+        freed_at[alloc_id] = last_use.get(alloc_id, -1)
+
+    for pos, node in enumerate(nodes):
+        node_id = str(node.get("id"))
+        op = str(node.get("op", ""))
+
+        # Release buffers whose last use was before this position.
+        for alloc_id, last_pos in list(freed_at.items()):
+            if last_pos < pos and alloc_id not in {
+                v for vals in free_pool.values() for v in vals
+            }:
+                alloc_node = node_by_id.get(alloc_id)
+                if alloc_node is not None:
+                    dtype = str(alloc_node.get("dtype", "dynamic"))
+                    size = alloc_node.get("attrs", {}).get("size")
+                    free_pool.setdefault((dtype, size), []).append(alloc_id)
+
+        if op.startswith("alloc") and node_id not in alloc_ids[:alloc_ids.index(node_id)]:
+            dtype = str(node.get("dtype", "dynamic"))
+            size = node.get("attrs", {}).get("size")
+            key = (dtype, size)
+            if key in free_pool and free_pool[key]:
+                donor_id = free_pool[key].pop()
+                attrs = dict(node.get("attrs", {}))
+                attrs["reuse_of"] = donor_id
+                node["attrs"] = attrs
+                reused += 1
+
+    return reused
 
 
 def _cse_attrs_key(attrs: dict[str, Any]) -> tuple[tuple[str, Any], ...]:

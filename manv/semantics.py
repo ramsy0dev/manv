@@ -35,7 +35,7 @@ BUILTIN_TYPES = {
     "OSError",
     "OutOfMemoryError",
 }
-STUB_FEATURE_DECLS = (ast.MacroDeclStub,)
+STUB_FEATURE_DECLS = ()
 STUB_FEATURE_STMTS = (ast.UnsupportedStmt,)
 
 

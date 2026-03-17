@@ -105,6 +105,35 @@ def _emit_kernel(module_hash: str, kernel: dict[str, Any], *, debug: bool) -> li
     return lines
 
 
+def _reduction_neutral(op: str, dtype: str) -> str:
+    """Return the identity element for a reduction operator as a C literal."""
+    is_float = dtype in {"float", "double"}
+    if op == "+":
+        return "0.0f" if is_float else "0"
+    if op == "*":
+        return "1.0f" if is_float else "1"
+    if op == "min":
+        return "FLT_MAX" if is_float else "INT_MAX"
+    if op == "max":
+        return "-FLT_MAX" if is_float else "INT_MIN"
+    return "0.0f" if is_float else "0"
+
+
+def _reduction_combine(op: str, dtype: str, acc: str, val: str) -> str:
+    """Return a C expression that combines *acc* and *val* using *op*."""
+    if op == "+":
+        return f"{acc} += {val}"
+    if op == "*":
+        return f"{acc} *= {val}"
+    if op == "min":
+        fn = "fminf" if dtype == "float" else ("fmin" if dtype == "double" else "min")
+        return f"{acc} = {fn}({acc}, {val})"
+    if op == "max":
+        fn = "fmaxf" if dtype == "float" else ("fmax" if dtype == "double" else "max")
+        return f"{acc} = {fn}({acc}, {val})"
+    return f"{acc} += {val}"
+
+
 def _emit_reduction_kernel(
     name: str,
     arg_parts: list[str],
@@ -120,9 +149,17 @@ def _emit_reduction_kernel(
     value_dtype = DTYPE_TO_CUDA.get(str(debug_meta.get("value_dtype", "f32")), "float")
     output_buffer = str(debug_meta.get("output_buffer", "out"))
     reduction_kind = str(debug_meta.get("kernel_kind"))
-    neutral = "0.0f" if value_dtype == "float" else "0"
+    reduction_op = str(debug_meta.get("reduction_op", "+"))
+    neutral = _reduction_neutral(reduction_op, value_dtype)
 
-    lines = [
+    # For min/max we need the relevant header macros.
+    extra_includes: list[str] = []
+    if reduction_op in {"min", "max"} and value_dtype in {"float", "double"}:
+        extra_includes.append("#include <math.h>")
+    if reduction_op in {"min", "max"} and value_dtype in {"int", "long long"}:
+        extra_includes.append("#include <limits.h>")
+
+    lines = [*extra_includes,
         f'extern "C" __global__ void {name}({", ".join(arg_parts)}) {{',
         "    // Reduction kernels use block-local tree reduction to keep the",
         "    // generated source readable and deterministic during debugging.",
@@ -130,6 +167,7 @@ def _emit_reduction_kernel(
         f"    // module_hash: {module_hash}",
         f"    // launch_model: {json.dumps(launch, sort_keys=True)}",
         f"    // reduction_kind: {reduction_kind}",
+        f"    // reduction_op: {reduction_op}",
         f"    __shared__ {value_dtype} shared_acc[256];",
         "    int tid = (int)threadIdx.x;",
         "    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);",
@@ -139,7 +177,7 @@ def _emit_reduction_kernel(
     ]
     if emitted:
         lines.extend(f"        {line}" for line in emitted)
-    lines.append(f"        acc += {reduction_expr};")
+    lines.append(f"        {_reduction_combine(reduction_op, value_dtype, 'acc', reduction_expr)};")
     lines.extend(
         [
             "    }",
@@ -147,7 +185,7 @@ def _emit_reduction_kernel(
             "    __syncthreads();",
             "    for (int offset = blockDim.x / 2; offset > 0; offset >>= 1) {",
             "        if (tid < offset) {",
-            "            shared_acc[tid] += shared_acc[tid + offset];",
+            f"            {_reduction_combine(reduction_op, value_dtype, 'shared_acc[tid]', 'shared_acc[tid + offset]')};",
             "        }",
             "        __syncthreads();",
             "    }",
@@ -214,6 +252,16 @@ def _emit_ops(ops: list[dict[str, Any]]) -> tuple[list[str], dict[str, str]]:
             index_expr = value_exprs.get(inputs[0], "i") if inputs else "i"
             value_expr = value_exprs.get(inputs[1], inputs[1] if len(inputs) > 1 else "0")
             lines.append(f"{buffer_name}[{index_expr}] = {value_expr};")
+            continue
+
+        if opcode.startswith("unary::") and outputs:
+            token = opcode.split("::", 1)[1]
+            operand = value_exprs.get(inputs[0], inputs[0] if inputs else "0")
+            if token == "not" or token == "!":
+                value_exprs[outputs[0]] = f"(!{operand})"
+            else:
+                # covers "-" and any future single-character unary ops
+                value_exprs[outputs[0]] = f"({token}{operand})"
             continue
 
         if opcode == "kernel_assert":
