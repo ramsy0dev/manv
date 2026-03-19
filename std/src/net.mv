@@ -1,0 +1,58 @@
+# HTTP networking
+
+class HttpResponse:
+    fn __init__(self, status, headers, body):
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+    fn ok(self) -> bool:
+        return self.status >= 200 and self.status < 300
+
+    fn text(self) -> str:
+        return self.body
+
+    fn json(self) -> map:
+        return __intrin.json_parse(self.body)
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("HttpResponse(", __intrin.str_concat(str(self.status), ")"))
+
+class HttpClient:
+    fn __init__(self, base_url):
+        self.base_url = base_url
+        self.headers = {}
+
+    fn get(self, path) -> HttpResponse:
+        let url = __intrin.str_concat(self.base_url, path)
+        let raw = __intrin.net_http_get(url, self.headers)
+        return HttpResponse(raw["status"], raw["headers"], raw["body"])
+
+    fn post(self, path, body) -> HttpResponse:
+        let url = __intrin.str_concat(self.base_url, path)
+        let raw = __intrin.net_http_post(url, body, self.headers)
+        return HttpResponse(raw["status"], raw["headers"], raw["body"])
+
+    fn put(self, path, body) -> HttpResponse:
+        let url = __intrin.str_concat(self.base_url, path)
+        let raw = __intrin.net_http_put(url, body, self.headers)
+        return HttpResponse(raw["status"], raw["headers"], raw["body"])
+
+    fn delete(self, path) -> HttpResponse:
+        let url = __intrin.str_concat(self.base_url, path)
+        let raw = __intrin.net_http_delete(url, self.headers)
+        return HttpResponse(raw["status"], raw["headers"], raw["body"])
+
+    fn with_header(self, name, value) -> HttpClient:
+        let new_client = HttpClient(self.base_url)
+        new_client.headers = self.headers
+        new_client.headers[name] = value
+        return new_client
+
+fn get(url) -> HttpResponse:
+    let raw = __intrin.net_http_get(url, {})
+    return HttpResponse(raw["status"], raw["headers"], raw["body"])
+
+fn post(url, body) -> HttpResponse:
+    let raw = __intrin.net_http_post(url, body, {})
+    return HttpResponse(raw["status"], raw["headers"], raw["body"])

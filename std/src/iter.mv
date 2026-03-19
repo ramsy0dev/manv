@@ -1,0 +1,205 @@
+# Iterator protocol base classes and functional operations
+
+class Iterator:
+    fn __iter__(self) -> Iterator:
+        return self
+    fn __next__(self) -> any:
+        raise StopIteration("exhausted")
+
+class Iterable:
+    fn __iter__(self) -> Iterator:
+        raise RuntimeError("__iter__ not implemented")
+
+class ArrayIterator:
+    fn __init__(self, arr):
+        self.arr = arr
+        self.index = 0
+
+    fn __iter__(self) -> ArrayIterator:
+        return self
+
+    fn __next__(self) -> any:
+        if self.index >= len(self.arr):
+            raise StopIteration("done")
+        let val = self.arr[self.index]
+        self.index = self.index + 1
+        return val
+
+class RangeIterator:
+    fn __init__(self, start, stop, step):
+        self.current = start
+        self.stop = stop
+        self.step = step
+
+    fn __iter__(self) -> RangeIterator:
+        return self
+
+    fn __next__(self) -> int:
+        if self.current >= self.stop:
+            raise StopIteration("done")
+        let val = self.current
+        self.current = self.current + self.step
+        return val
+
+class Peekable:
+    fn __init__(self, arr):
+        self.arr = arr
+        self.index = 0
+
+    fn peek(self) -> any:
+        if self.index >= len(self.arr):
+            raise StopIteration("exhausted")
+        return self.arr[self.index]
+
+    fn has_next(self) -> bool:
+        return self.index < len(self.arr)
+
+    fn __iter__(self) -> Peekable:
+        return self
+
+    fn __next__(self) -> any:
+        if self.index >= len(self.arr):
+            raise StopIteration("done")
+        let val = self.arr[self.index]
+        self.index = self.index + 1
+        return val
+
+fn map_iter(arr, fn_) -> array:
+    let result = []
+    for item in arr:
+        __intrin.core_array_push(result, fn_(item))
+    return result
+
+fn filter_iter(arr, fn_) -> array:
+    let result = []
+    for item in arr:
+        if fn_(item):
+            __intrin.core_array_push(result, item)
+    return result
+
+fn reduce_iter(arr, fn_, init) -> any:
+    let acc = init
+    for item in arr:
+        acc = fn_(acc, item)
+    return acc
+
+fn take(arr, n) -> array:
+    let result = []
+    let i = 0
+    for item in arr:
+        if i >= n:
+            break
+        __intrin.core_array_push(result, item)
+        i = i + 1
+    return result
+
+fn skip(arr, n) -> array:
+    let result = []
+    let i = 0
+    for item in arr:
+        if i >= n:
+            __intrin.core_array_push(result, item)
+        i = i + 1
+    return result
+
+fn take_while(arr, fn_) -> array:
+    let result = []
+    for item in arr:
+        if not fn_(item):
+            break
+        __intrin.core_array_push(result, item)
+    return result
+
+fn skip_while(arr, fn_) -> array:
+    let result = []
+    let skipping = true
+    for item in arr:
+        if skipping and fn_(item):
+            continue
+        skipping = false
+        __intrin.core_array_push(result, item)
+    return result
+
+fn flatten(arr) -> array:
+    let result = []
+    for item in arr:
+        if isinstance(item, array):
+            for inner in item:
+                __intrin.core_array_push(result, inner)
+        else:
+            __intrin.core_array_push(result, item)
+    return result
+
+fn chain(arr1, arr2) -> array:
+    let result = []
+    for item in arr1:
+        __intrin.core_array_push(result, item)
+    for item in arr2:
+        __intrin.core_array_push(result, item)
+    return result
+
+fn zip_iters(arr1, arr2) -> array:
+    let result = []
+    let n = len(arr1)
+    let m = len(arr2)
+    let size = n
+    if m < n:
+        size = m
+    let i = 0
+    for item in arr1:
+        if i >= size:
+            break
+        __intrin.core_array_push(result, [item, arr2[i]])
+        i = i + 1
+    return result
+
+fn collect(iter) -> array:
+    if isinstance(iter, array):
+        return iter
+    let result = []
+    for item in iter:
+        __intrin.core_array_push(result, item)
+    return result
+
+fn count_iter(arr) -> int:
+    let n = 0
+    for item in arr:
+        n = n + 1
+    return n
+
+fn first(arr) -> any:
+    for item in arr:
+        return item
+    return none
+
+fn last(arr) -> any:
+    let result = none
+    for item in arr:
+        result = item
+    return result
+
+fn nth(arr, n) -> any:
+    let i = 0
+    for item in arr:
+        if i == n:
+            return item
+        i = i + 1
+    return none
+
+fn any_match(arr, fn_) -> bool:
+    for item in arr:
+        if fn_(item):
+            return true
+    return false
+
+fn all_match(arr, fn_) -> bool:
+    for item in arr:
+        if not fn_(item):
+            return false
+    return true
+
+fn find_first(arr, fn_) -> any:
+    for item in arr:
+        if fn_(item):
+            return item
+    return none

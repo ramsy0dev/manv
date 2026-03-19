@@ -69,6 +69,13 @@ class BoundMethodObject:
 
 
 @dataclass
+class SuperProxy:
+    receiver: "InstanceObject"
+    start_type: "TypeObject | None"
+    _heap_id: int | None = None
+
+
+@dataclass
 class ExceptionObject:
     type_obj: TypeObject
     message: str

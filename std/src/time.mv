@@ -1,0 +1,63 @@
+# Time and duration handling
+
+class Duration:
+    fn __init__(self, ms):
+        self.ms = ms
+
+    fn seconds(self) -> float:
+        return float(self.ms) / 1000.0
+
+    fn millis(self) -> int:
+        return self.ms
+
+    fn minutes(self) -> float:
+        return float(self.ms) / 60000.0
+
+    fn hours(self) -> float:
+        return float(self.ms) / 3600000.0
+
+    fn __add__(self, other) -> Duration:
+        return Duration(self.ms + other.ms)
+
+    fn __sub__(self, other) -> Duration:
+        return Duration(self.ms - other.ms)
+
+    fn __lt__(self, other) -> bool:
+        return self.ms < other.ms
+
+    fn __eq__(self, other) -> bool:
+        if isinstance(other, Duration):
+            return self.ms == other.ms
+        return false
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Duration(", __intrin.str_concat(str(self.ms), "ms)"))
+
+class Instant:
+    fn __init__(self, ms):
+        self.ms = ms
+
+    fn elapsed(self) -> Duration:
+        return Duration(__intrin.sys_monotonic_ms() - self.ms)
+
+    fn duration_since(self, other) -> Duration:
+        return Duration(self.ms - other.ms)
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Instant(", __intrin.str_concat(str(self.ms), ")"))
+
+    @static_method
+    fn now() -> Instant:
+        return Instant(__intrin.sys_monotonic_ms())
+
+fn now_ms() -> int:
+    return __intrin.sys_time_ms()
+
+fn monotonic_ms() -> int:
+    return __intrin.sys_monotonic_ms()
+
+fn sleep_ms(ms):
+    __intrin.sys_sleep_ms(ms)
+
+fn sleep(seconds):
+    __intrin.sys_sleep_ms(int(seconds * 1000.0))

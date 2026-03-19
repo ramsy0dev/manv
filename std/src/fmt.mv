@@ -1,0 +1,133 @@
+# Advanced string formatting
+
+fn format(template, args) -> str:
+    let result = template
+    for key in __intrin.core_map_keys(args):
+        let placeholder = __intrin.str_concat("{", __intrin.str_concat(str(key), "}"))
+        let val_str = str(args[key])
+        result = __intrin.str_replace(result, placeholder, val_str)
+    return result
+
+fn format_pos(template, args) -> str:
+    let result = template
+    let i = 0
+    for arg in args:
+        let placeholder = __intrin.str_concat("{", __intrin.str_concat(str(i), "}"))
+        result = __intrin.str_replace(result, placeholder, str(arg))
+        i = i + 1
+    return result
+
+fn to_hex(n) -> str:
+    if n == 0:
+        return "0x0"
+    let digits = "0123456789ABCDEF"
+    let result = ""
+    let val = n
+    if val < 0:
+        val = -val
+    while val > 0:
+        let rem = val % 16
+        result = __intrin.str_concat(__intrin.str_char_at(digits, rem), result)
+        val = val / 16
+    return __intrin.str_concat("0x", result)
+
+fn to_binary(n) -> str:
+    if n == 0:
+        return "0b0"
+    let result = ""
+    let val = n
+    if val < 0:
+        val = -val
+    while val > 0:
+        if val % 2 == 1:
+            result = __intrin.str_concat("1", result)
+        else:
+            result = __intrin.str_concat("0", result)
+        val = val / 2
+    return __intrin.str_concat("0b", result)
+
+fn to_octal(n) -> str:
+    if n == 0:
+        return "0o0"
+    let digits = "01234567"
+    let result = ""
+    let val = n
+    if val < 0:
+        val = -val
+    while val > 0:
+        let rem = val % 8
+        result = __intrin.str_concat(__intrin.str_char_at(digits, rem), result)
+        val = val / 8
+    return __intrin.str_concat("0o", result)
+
+fn to_fixed(f, digits) -> str:
+    return __intrin.math_to_fixed(f, digits)
+
+fn to_exp(f, digits) -> str:
+    return __intrin.math_to_exp(f, digits)
+
+fn pad_left(s, width, fill) -> str:
+    return __intrin.str_pad_left(s, width, fill)
+
+fn pad_right(s, width, fill) -> str:
+    return __intrin.str_pad_right(s, width, fill)
+
+fn center(s, width, fill) -> str:
+    let slen = __intrin.str_length(s)
+    if slen >= width:
+        return s
+    let total_pad = width - slen
+    let left_pad = total_pad / 2
+    let right_pad = total_pad - left_pad
+    let result = s
+    let i = 0
+    while i < left_pad:
+        result = __intrin.str_concat(fill, result)
+        i = i + 1
+    i = 0
+    while i < right_pad:
+        result = __intrin.str_concat(result, fill)
+        i = i + 1
+    return result
+
+fn table(headers, rows) -> str:
+    let col_widths = []
+    for h in headers:
+        __intrin.core_array_push(col_widths, __intrin.str_length(str(h)))
+    for row in rows:
+        let ci = 0
+        for cell in row:
+            let cw = __intrin.str_length(str(cell))
+            if cw > col_widths[ci]:
+                col_widths[ci] = cw
+            ci = ci + 1
+    let sep = "+"
+    let i = 0
+    for w in col_widths:
+        let dashes = ""
+        let j = 0
+        while j < w + 2:
+            dashes = __intrin.str_concat(dashes, "-")
+            j = j + 1
+        sep = __intrin.str_concat(sep, __intrin.str_concat(dashes, "+"))
+    let result = __intrin.str_concat(sep, "\n")
+    let header_row = "|"
+    let hi = 0
+    for h in headers:
+        let hs = str(h)
+        let padded = __intrin.str_pad_right(hs, col_widths[hi], " ")
+        header_row = __intrin.str_concat(header_row, __intrin.str_concat(" ", __intrin.str_concat(padded, " |")))
+        hi = hi + 1
+    result = __intrin.str_concat(result, __intrin.str_concat(header_row, "\n"))
+    result = __intrin.str_concat(result, __intrin.str_concat(sep, "\n"))
+    for row in rows:
+        let row_str = "|"
+        let ci = 0
+        for cell in row:
+            let cs = str(cell)
+            let padded = __intrin.str_pad_right(cs, col_widths[ci], " ")
+            row_str = __intrin.str_concat(row_str, __intrin.str_concat(" ", __intrin.str_concat(padded, " |")))
+            ci = ci + 1
+        result = __intrin.str_concat(result, __intrin.str_concat(row_str, "\n"))
+    result = __intrin.str_concat(result, sep)
+    return result

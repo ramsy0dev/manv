@@ -631,3 +631,48 @@ class TensorMath:
     fn max_reduce(self):
         "Returns the maximum element. Empty tensors raise ValueError."
         return _tensor_max_reduce(self.xs)
+
+
+fn gcd(a, b) -> int:
+    let x = a
+    let y = b
+    if x < 0:
+        x = -x
+    if y < 0:
+        y = -y
+    while y != 0:
+        let t = y
+        y = x % y
+        x = t
+    return x
+
+fn lcm(a, b) -> int:
+    if a == 0 or b == 0:
+        return 0
+    return (a / gcd(a, b)) * b
+
+fn hypot(x, y) -> float:
+    return sqrt(x * x + y * y)
+
+fn degrees(r) -> float:
+    return r * (180.0 / pi)
+
+fn radians(d) -> float:
+    return d * (pi / 180.0)
+
+fn sign(x) -> int:
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
+
+fn lerp(a, b, t) -> float:
+    return a + (b - a) * t
+
+fn smoothstep(edge0, edge1, x) -> float:
+    let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+let phi: float = 1.6180339887498948482
+let sqrt3: float = 1.7320508075688772935

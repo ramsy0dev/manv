@@ -1,0 +1,72 @@
+# Result[T, E] — Rust-inspired error handling
+
+from option import Option, Some, None_
+
+class Result:
+    fn __init__(self, is_ok_val, value):
+        self._is_ok = is_ok_val
+        self.value = value
+
+    fn is_ok(self) -> bool:
+        return self._is_ok
+
+    fn is_err(self) -> bool:
+        return not self._is_ok
+
+    fn unwrap(self) -> any:
+        if self.is_err():
+            raise ValueError(__intrin.str_concat("called unwrap() on Err: ", __intrin.core_repr(self.value)))
+        return self.value
+
+    fn unwrap_err(self) -> any:
+        if self.is_ok():
+            raise ValueError("called unwrap_err() on Ok value")
+        return self.value
+
+    fn unwrap_or(self, default) -> any:
+        if self.is_err():
+            return default
+        return self.value
+
+    fn map(self, fn_) -> Result:
+        if self.is_err():
+            return self
+        return Ok(fn_(self.value))
+
+    fn map_err(self, fn_) -> Result:
+        if self.is_ok():
+            return self
+        return Err(fn_(self.value))
+
+    fn and_then(self, fn_) -> Result:
+        if self.is_err():
+            return self
+        return fn_(self.value)
+
+    fn or_else(self, fn_) -> Result:
+        if self.is_ok():
+            return self
+        return fn_(self.value)
+
+    fn ok(self) -> Option:
+        if self.is_ok():
+            return Some(self.value)
+        return None_()
+
+    fn __repr__(self) -> str:
+        if self.is_ok():
+            return __intrin.str_concat("Ok(", __intrin.str_concat(__intrin.core_repr(self.value), ")"))
+        return __intrin.str_concat("Err(", __intrin.str_concat(__intrin.core_repr(self.value), ")"))
+
+    fn __eq__(self, other) -> bool:
+        if not isinstance(other, Result):
+            return false
+        if self._is_ok != other._is_ok:
+            return false
+        return self.value == other.value
+
+fn Ok(value) -> Result:
+    return Result(true, value)
+
+fn Err(error) -> Result:
+    return Result(false, error)

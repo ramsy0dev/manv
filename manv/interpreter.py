@@ -27,11 +27,13 @@ from .object_runtime import (
     InstanceObject,
     ModuleObject,
     OutOfMemoryError,
+    SuperProxy,
     TypeObject,
 )
 from .semantics import (
     accessor_kind,
     accessor_property_name,
+    has_classmethod_decorator,
     has_static_method_decorator,
     normalize_gpu_decorator,
     normalize_type_name,
@@ -75,6 +77,7 @@ class FunctionValue:
     owner_type: TypeObject | None = None
     globals_env: "Environment | None" = None
     is_static_method: bool = False
+    is_class_method: bool = False
 
 
 class Environment:
@@ -183,12 +186,38 @@ class Interpreter:
         self.types[name] = obj
         return obj
 
+    def _c3_mro(self, type_obj: TypeObject, base_objects: list[TypeObject]) -> list[str]:
+        """C3 linearization algorithm for MRO computation."""
+        if not base_objects:
+            return [type_obj.name, "object"]
+        # C3: merge([type] + [mro(B) for B in bases] + [bases])
+        sequences = [[type_obj.name]] + [list(b.mro) for b in base_objects] + [[b.name for b in base_objects]]
+        result: list[str] = []
+        while sequences:
+            # Find a good head: not in tail of any other sequence
+            head = None
+            for seq in sequences:
+                if not seq:
+                    continue
+                candidate = seq[0]
+                if all(candidate not in s[1:] for s in sequences):
+                    head = candidate
+                    break
+            if head is None:
+                # Inconsistent MRO — fall back to simple order
+                break
+            result.append(head)
+            sequences = [s[1:] if s and s[0] == head else s for s in sequences]
+            sequences = [s for s in sequences if s]
+        return result
+
     def _runtime_function_value(self, method: ast.FnDecl, owner_type: TypeObject) -> FunctionValue:
         return FunctionValue(
             decl=method,
             owner_type=owner_type,
             globals_env=self.global_env,
             is_static_method=has_static_method_decorator(method),
+            is_class_method=has_classmethod_decorator(method),
         )
 
     def _register_type_method(self, type_obj: TypeObject, method: ast.FnDecl) -> None:
@@ -225,9 +254,9 @@ class Interpreter:
         # First register all type names so inheritance can resolve in second pass.
         for decl in program.declarations:
             if isinstance(decl, ast.TypeDecl):
-                base_name = decl.base_name or "object"
+                primary_base = decl.base_names[0] if decl.base_names else "object"
                 if decl.name not in self.types:
-                    self._define_type(decl.name, base_name)
+                    self._define_type(decl.name, primary_base)
 
         for decl in program.declarations:
             if isinstance(decl, ast.FnDecl):
@@ -236,9 +265,13 @@ class Interpreter:
                 self.global_env.define(decl.name, fn_val)
             elif isinstance(decl, ast.TypeDecl):
                 type_obj = self.types[decl.name]
-                if decl.base_name and decl.base_name in self.types:
-                    type_obj.base = self.types[decl.base_name]
-                    type_obj.mro = [type_obj.name, *type_obj.base.mro]
+                if decl.base_names:
+                    primary_base = decl.base_names[0]
+                    if primary_base in self.types:
+                        type_obj.base = self.types[primary_base]
+                    # Build MRO with all bases
+                    base_objects = [self.types[b] for b in decl.base_names if b in self.types]
+                    type_obj.mro = self._c3_mro(type_obj, base_objects)
                 type_obj.docstring = decl.docstring
                 if decl.attrs:
                     self.type_constants.setdefault(type_obj.name, set()).update(attr.name for attr in decl.attrs)
@@ -333,6 +366,20 @@ class Interpreter:
                 self._raise_runtime("RuntimeError", f"undefined variable '{stmt.name}'", stmt.span)
             rhs = self.eval_expr(stmt.value, env)
             op = stmt.op[:-1]  # strip '=' to get '+', '-', '*', '/', '%'
+            if isinstance(current, InstanceObject):
+                DUNDER_MAP = {"+": ("__add__", "add"), "-": ("__sub__", "sub"), "*": ("__mul__", "mul"),
+                              "/": ("__truediv__", "truediv"), "%": ("__mod__", "mod"), "**": ("__pow__", "pow")}
+                if op in DUNDER_MAP:
+                    dunder, alias = DUNDER_MAP[op]
+                    result, found = self._try_dunder(current, dunder, [rhs])
+                    if not found:
+                        result, found = self._try_dunder(current, alias, [rhs])
+                    if found:
+                        try:
+                            env.assign(stmt.name, result)
+                        except KeyError:
+                            self._raise_runtime("RuntimeError", f"undefined variable '{stmt.name}'", stmt.span)
+                        return None
             result = eval_binary(op, current, rhs)
             try:
                 env.assign(stmt.name, result)
@@ -365,6 +412,31 @@ class Interpreter:
                 op = stmt.op[:-1]
                 result = eval_binary(op, current, rhs)
                 target[index] = result
+            elif isinstance(target, InstanceObject):
+                # Get current value via __getitem__, apply op, set via __setitem__
+                current, found = self._try_dunder(target, "__getitem__", [index])
+                if not found:
+                    current, found = self._try_dunder(target, "getitem", [index])
+                if not found:
+                    self._raise_runtime("TypeError", "augmented index assignment target must be array or map", stmt.span)
+                rhs = self.eval_expr(stmt.value, env)
+                op = stmt.op[:-1]
+                DUNDER_MAP = {"+": ("__add__", "add"), "-": ("__sub__", "sub"), "*": ("__mul__", "mul"),
+                              "/": ("__truediv__", "truediv"), "%": ("__mod__", "mod"), "**": ("__pow__", "pow")}
+                if isinstance(current, InstanceObject) and op in DUNDER_MAP:
+                    dunder, alias = DUNDER_MAP[op]
+                    result, dfound = self._try_dunder(current, dunder, [rhs])
+                    if not dfound:
+                        result, dfound = self._try_dunder(current, alias, [rhs])
+                    if not dfound:
+                        result = eval_binary(op, current, rhs)
+                else:
+                    result = eval_binary(op, current, rhs)
+                _, sfound = self._try_dunder(target, "__setitem__", [index, result])
+                if not sfound:
+                    _, sfound = self._try_dunder(target, "setitem", [index, result])
+                if not sfound:
+                    self._raise_runtime("TypeError", "augmented index assignment target must be array or map", stmt.span)
             else:
                 self._raise_runtime("TypeError", "augmented index assignment target must be array or map", stmt.span)
             return None
@@ -387,6 +459,12 @@ class Interpreter:
                 self._assert_hashable(index, stmt.span)
                 target[index] = value
                 return None
+            if isinstance(target, InstanceObject):
+                _, found = self._try_dunder(target, "__setitem__", [index, value])
+                if not found:
+                    _, found = self._try_dunder(target, "setitem", [index, value])
+                if found:
+                    return None
             self._raise_runtime("TypeError", "index assignment target must be array or map", stmt.span)
 
         if isinstance(stmt, ast.ReturnStmt):
@@ -445,29 +523,86 @@ class Interpreter:
                 if not isinstance(raw_start, int) or not isinstance(raw_stop, int):
                     self._raise_runtime("TypeError", "range bounds must be integers", stmt.span)
                 items: list[object] = list(range(raw_start, raw_stop))
+                broke = False
+                for item in items:
+                    loop_env = Environment(parent=env)
+                    loop_env.define(stmt.var_name, item)
+                    try:
+                        for inner in stmt.body:
+                            self.execute_stmt(inner, loop_env, in_loop=True)
+                    except ContinueSignal:
+                        continue
+                    except BreakSignal:
+                        broke = True
+                        break
+                if not broke and stmt.else_body:
+                    else_env = Environment(parent=env)
+                    for inner in stmt.else_body:
+                        self.execute_stmt(inner, else_env, in_loop=in_loop)
+                return None
             else:
                 iterable = self.eval_expr(stmt.iterable, env)
                 if isinstance(iterable, list):
                     items = list(iterable)
+                    broke = False
+                    for item in items:
+                        loop_env = Environment(parent=env)
+                        loop_env.define(stmt.var_name, item)
+                        try:
+                            for inner in stmt.body:
+                                self.execute_stmt(inner, loop_env, in_loop=True)
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            broke = True
+                            break
+                    if not broke and stmt.else_body:
+                        else_env = Environment(parent=env)
+                        for inner in stmt.else_body:
+                            self.execute_stmt(inner, else_env, in_loop=in_loop)
+                    return None
+                elif isinstance(iterable, InstanceObject):
+                    # Use __iter__ / __next__ protocol
+                    iter_method = self._lookup_method(iterable.type_obj, "__iter__") or self._lookup_method(iterable.type_obj, "iter_")
+                    if iter_method is not None:
+                        iterator = self._call_function(iter_method, [iterable])
+                    else:
+                        iterator = iterable  # object IS the iterator
+                    if not isinstance(iterator, InstanceObject):
+                        self._raise_runtime("TypeError", "__iter__ must return an object", stmt.span)
+                    next_method = self._lookup_method(iterator.type_obj, "__next__") or self._lookup_method(iterator.type_obj, "next_")
+                    if next_method is None:
+                        self._raise_runtime("TypeError", f"'{iterator.type_obj.name}' has no __next__ method", stmt.span)
+                    stop_iter_type = self.types.get("StopIteration")
+                    broke = False
+                    guard = 0
+                    while True:
+                        guard += 1
+                        if guard > 1_000_000:
+                            self._raise_runtime("RuntimeError", "iterator guard exceeded", stmt.span)
+                        try:
+                            item = self._call_function(next_method, [iterator])
+                        except RaiseSignal as rs:
+                            if stop_iter_type is not None and self._is_type_or_subtype(rs.error.type_obj, stop_iter_type):
+                                break
+                            raise
+                        loop_env = Environment(parent=env)
+                        loop_env.define(stmt.var_name, item)
+                        try:
+                            for inner in stmt.body:
+                                self.execute_stmt(inner, loop_env, in_loop=True)
+                        except ContinueSignal:
+                            continue
+                        except BreakSignal:
+                            broke = True
+                            break
+                    if not broke and stmt.else_body:
+                        else_env = Environment(parent=env)
+                        for inner in stmt.else_body:
+                            self.execute_stmt(inner, else_env, in_loop=in_loop)
+                    return None
                 else:
-                    self._raise_runtime("TypeError", "for loop iterable must be an array or range", stmt.span)
-            broke = False
-            for item in items:
-                loop_env = Environment(parent=env)
-                loop_env.define(stmt.var_name, item)
-                try:
-                    for inner in stmt.body:
-                        self.execute_stmt(inner, loop_env, in_loop=True)
-                except ContinueSignal:
-                    continue
-                except BreakSignal:
-                    broke = True
-                    break
-            if not broke and stmt.else_body:
-                else_env = Environment(parent=env)
-                for inner in stmt.else_body:
-                    self.execute_stmt(inner, else_env, in_loop=in_loop)
-            return None
+                    self._raise_runtime("TypeError", "for loop iterable must be an array, range, or iterable object", stmt.span)
 
         if isinstance(stmt, ast.ExprStmt):
             return self.eval_expr(stmt.expr, env)
@@ -486,17 +621,13 @@ class Interpreter:
             ctx_value = self.eval_expr(stmt.context, env)
             enter_val = None
             if isinstance(ctx_value, InstanceObject):
-                enter_method = ctx_value.attrs.get("__enter__")
-                if enter_method is None:
-                    type_obj = ctx_value.type_obj
-                    if type_obj is not None:
-                        enter_method = type_obj.methods.get("__enter__")
+                enter_method = self._lookup_method(ctx_value.type_obj, "__enter__")
                 if enter_method is not None:
                     enter_val = self._call_function(enter_method, [ctx_value])
             with_env = Environment(parent=env)
             if stmt.bind_name is not None:
                 with_env.define(stmt.bind_name, enter_val if enter_val is not None else ctx_value)
-            exc_to_raise = None
+            exc_to_raise: RaiseSignal | None = None
             try:
                 for inner in stmt.body:
                     self.execute_stmt(inner, with_env, in_loop=in_loop)
@@ -504,13 +635,18 @@ class Interpreter:
                 exc_to_raise = rs
             finally:
                 if isinstance(ctx_value, InstanceObject):
-                    exit_method = ctx_value.attrs.get("__exit__")
-                    if exit_method is None:
-                        type_obj = ctx_value.type_obj
-                        if type_obj is not None:
-                            exit_method = type_obj.methods.get("__exit__")
+                    exit_method = self._lookup_method(ctx_value.type_obj, "__exit__")
                     if exit_method is not None:
-                        self._call_function(exit_method, [ctx_value, None, None, None])
+                        if exc_to_raise is not None:
+                            err = exc_to_raise.error
+                            exc_type = err.type_obj
+                            exc_val = err
+                            exc_tb = str(err.stacktrace) if err.stacktrace else None
+                            suppress = self._call_function(exit_method, [ctx_value, exc_type, exc_val, exc_tb])
+                            if suppress:
+                                exc_to_raise = None
+                        else:
+                            self._call_function(exit_method, [ctx_value, None, None, None])
             if exc_to_raise is not None:
                 raise exc_to_raise
             return None
@@ -652,6 +788,19 @@ class Interpreter:
 
         if isinstance(expr, ast.UnaryExpr):
             value = self.eval_expr(expr.expr, env)
+            if isinstance(value, InstanceObject):
+                if expr.op == "-":
+                    result, found = self._try_dunder(value, "__neg__", [])
+                    if not found:
+                        result, found = self._try_dunder(value, "neg", [])
+                    if found:
+                        return result
+                elif expr.op == "not":
+                    result, found = self._try_dunder(value, "__bool__", [])
+                    if not found:
+                        result, found = self._try_dunder(value, "bool_", [])
+                    if found:
+                        return not bool(result)
             try:
                 return eval_unary(expr.op, value)
             except Exception:
@@ -663,6 +812,31 @@ class Interpreter:
             if expr.op in {"==", "!="}:
                 eq = self._equals(left, right, expr.span)
                 return eq if expr.op == "==" else (not eq)
+            # 'in' operator dispatches to right.__contains__(left)
+            if expr.op == "in":
+                if isinstance(right, InstanceObject):
+                    result, found = self._try_dunder(right, "__contains__", [left])
+                    if not found:
+                        result, found = self._try_dunder(right, "contains", [left])
+                    if found:
+                        return bool(result)
+                try:
+                    return eval_binary(expr.op, left, right)
+                except Exception:
+                    self._raise_runtime("TypeError", f"unsupported binary operator '{expr.op}'", expr.span)
+            # All other binary operators: try dunder on left operand
+            DUNDER_MAP = {
+                "+": ("__add__", "add"), "-": ("__sub__", "sub"), "*": ("__mul__", "mul"),
+                "/": ("__truediv__", "truediv"), "%": ("__mod__", "mod"), "**": ("__pow__", "pow"),
+                "<": ("__lt__", "lt"), "<=": ("__le__", "le"), ">": ("__gt__", "gt"), ">=": ("__ge__", "ge"),
+            }
+            if isinstance(left, InstanceObject) and expr.op in DUNDER_MAP:
+                dunder, alias = DUNDER_MAP[expr.op]
+                result, found = self._try_dunder(left, dunder, [right])
+                if not found:
+                    result, found = self._try_dunder(left, alias, [right])
+                if found:
+                    return result
             try:
                 return eval_binary(expr.op, left, right)
             except Exception:
@@ -695,6 +869,12 @@ class Interpreter:
                 if index not in target:
                     self._raise_runtime("KeyError", f"missing key: {index}", expr.span, payload=index)
                 return target[index]
+            if isinstance(target, InstanceObject):
+                result, found = self._try_dunder(target, "__getitem__", [index])
+                if not found:
+                    result, found = self._try_dunder(target, "getitem", [index])
+                if found:
+                    return result
             self._raise_runtime("TypeError", "index target must be list or map", expr.span)
 
         if isinstance(expr, ast.AttributeExpr):
@@ -742,6 +922,36 @@ class Interpreter:
                     value = self.eval_expr(expr.args[0], env)
                     self.stdout.write(self._help_text(value) + "\n")
                     return None
+                if name == "super":
+                    # Find the enclosing instance and owner type from call stack
+                    self_obj = None
+                    owner_type_obj = None
+                    for frame in reversed(self.call_stack):
+                        frame_env_vals = frame.get("env", {})
+                        if "self" in frame_env_vals and self_obj is None:
+                            self_obj = frame_env_vals["self"]
+                        if frame.get("owner_type") is not None and owner_type_obj is None:
+                            owner_type_obj = frame.get("owner_type")
+                        if self_obj is not None and owner_type_obj is not None:
+                            break
+                    if self_obj is None or not isinstance(self_obj, InstanceObject):
+                        self._raise_runtime("RuntimeError", "super() called outside instance method", expr.span)
+                    # Find next type in MRO after owner_type_obj
+                    mro_names = self_obj.type_obj.mro
+                    start_type = None
+                    if owner_type_obj is not None:
+                        found_owner = False
+                        for mro_name in mro_names:
+                            if found_owner:
+                                start_type = self.types.get(mro_name)
+                                break
+                            if mro_name == owner_type_obj.name:
+                                found_owner = True
+                    try:
+                        proxy = self.heap.allocate("SuperProxy", SuperProxy(receiver=self_obj, start_type=start_type))
+                    except OutOfMemoryError as exc:
+                        self._raise_runtime("OutOfMemoryError", str(exc), expr.span)
+                    return proxy
 
             args = [self.eval_expr(arg, env) for arg in expr.args]
 
@@ -805,12 +1015,24 @@ class Interpreter:
         if isinstance(callee, FunctionValue):
             return self._call_function(callee, args)
         if isinstance(callee, BoundMethodObject):
-            return self._call_function(callee.function, [callee.receiver, *args])
+            fn = callee.function
+            if isinstance(fn, FunctionValue) and fn.is_class_method:
+                cls_arg = callee.receiver.type_obj if isinstance(callee.receiver, InstanceObject) else callee.receiver
+                return self._call_function(fn, [cls_arg, *args])
+            return self._call_function(fn, [callee.receiver, *args])
+        if isinstance(callee, SuperProxy):
+            # super() itself is not callable; attribute access via super().method() is
+            self._raise_runtime("TypeError", "super() object is not directly callable", span)
         if isinstance(callee, TypeObject):
             cast = self._try_primitive_cast(callee, args, span)
             if cast is not None:
                 return cast
             return self._construct_instance(callee, args, span)
+        if isinstance(callee, InstanceObject):
+            call_method = self._lookup_method(callee.type_obj, "__call__") or self._lookup_method(callee.type_obj, "call_")
+            if call_method is not None:
+                return self._call_function(call_method, [callee, *args])
+            self._raise_runtime("TypeError", f"'{callee.type_obj.name}' object is not callable", span)
         if isinstance(callee, IntrinsicCallable):
             return self._invoke_intrinsic(callee.name, args, span)
         if isinstance(callee, StdCallable):
@@ -848,10 +1070,29 @@ class Interpreter:
         if name == "str":
             if isinstance(val, str):
                 return val
+            if isinstance(val, InstanceObject):
+                result, found = self._try_dunder(val, "__str__", [])
+                if not found:
+                    result, found = self._try_dunder(val, "str_", [])
+                if not found:
+                    result, found = self._try_dunder(val, "__repr__", [])
+                if not found:
+                    result, found = self._try_dunder(val, "repr_", [])
+                if found:
+                    return str(result)
+                return f"<{val.type_obj.name} object>"
             return str(val)
         if name == "bool":
             if isinstance(val, bool):
                 return val
+            if isinstance(val, InstanceObject):
+                result, found = self._try_dunder(val, "__bool__", [])
+                if not found:
+                    result, found = self._try_dunder(val, "bool_", [])
+                if found:
+                    return bool(result)
+                # Fall back: True if object exists (like Python)
+                return True
             return bool(val)
         return None
 
@@ -900,6 +1141,28 @@ class Interpreter:
         return None
 
     def _lookup_attr(self, base: Any, attr: str, span: Any) -> Any:
+        if isinstance(base, SuperProxy):
+            # Start lookup from start_type in MRO
+            start = base.start_type
+            if start is None:
+                start = self.types.get("object")
+            if start is None:
+                self._raise_runtime("AttributeError", "super() has no valid base", span)
+            method = None
+            cur: TypeObject | None = start
+            while cur is not None:
+                if attr in cur.methods:
+                    method = cur.methods[attr]
+                    break
+                cur = cur.base
+            if method is None:
+                self._raise_runtime("AttributeError", f"super() has no attribute '{attr}'", span)
+            if method.is_static_method:
+                return method
+            try:
+                return self.heap.allocate("BoundMethod", BoundMethodObject(receiver=base.receiver, function=method))
+            except OutOfMemoryError as exc:
+                self._raise_runtime("OutOfMemoryError", str(exc), span)
         if isinstance(base, InstanceObject):
             getter = self._lookup_getter(base.type_obj, attr)
             if getter is not None:
@@ -1018,7 +1281,7 @@ class Interpreter:
         for param, value in zip(fn.decl.params, args, strict=True):
             env.define(param.name, value)
 
-        self.call_stack.append({"function": fn.decl.name, "span": fn.decl.span, "env": env.values})
+        self.call_stack.append({"function": fn.decl.name, "span": fn.decl.span, "env": env.values, "owner_type": fn.owner_type})
         try:
             for stmt in fn.decl.body:
                 self.execute_stmt(stmt, env, in_loop=False)
@@ -1218,6 +1481,16 @@ class Interpreter:
         except Exception:
             self._raise_runtime("TypeError", "equality comparison failed", span)
 
+    def _try_dunder(self, obj: Any, dunder_name: str, args: list[Any]) -> tuple[Any, bool]:
+        """Try calling a dunder method on an instance. Returns (result, found)."""
+        if not isinstance(obj, InstanceObject):
+            return None, False
+        method = self._lookup_method(obj.type_obj, dunder_name)
+        if method is None:
+            return None, False
+        result = self._call_function(method, [obj, *args])
+        return result, True
+
     def _import_module(self, module_name: str, span: Any, *, level: int = 0) -> ModuleObject:
         # Convert relative forms into a stable canonical module key.
         canonical_name = self._canonicalize_module_name(module_name, level, span)
@@ -1270,13 +1543,16 @@ class Interpreter:
                     self.functions[f"{canonical_name}.{decl.name}"] = fn_val
                 elif isinstance(decl, ast.TypeDecl):
                     # Type declarations are attached to runtime type registry.
-                    base_name = decl.base_name or "object"
+                    primary_base = decl.base_names[0] if decl.base_names else "object"
                     if decl.name not in self.types:
-                        self._define_type(decl.name, base_name)
+                        self._define_type(decl.name, primary_base)
                     type_obj = self.types[decl.name]
-                    if decl.base_name and decl.base_name in self.types:
-                        type_obj.base = self.types[decl.base_name]
-                        type_obj.mro = [type_obj.name, *type_obj.base.mro]
+                    if decl.base_names:
+                        pbase = decl.base_names[0]
+                        if pbase in self.types:
+                            type_obj.base = self.types[pbase]
+                        base_objects = [self.types[b] for b in decl.base_names if b in self.types]
+                        type_obj.mro = self._c3_mro(type_obj, base_objects)
                     type_obj.docstring = decl.docstring
                     module_env.define(decl.name, type_obj)
                     if decl.attrs:
@@ -1289,6 +1565,7 @@ class Interpreter:
                             owner_type=type_obj,
                             globals_env=module_env,
                             is_static_method=has_static_method_decorator(method),
+                            is_class_method=has_classmethod_decorator(method),
                         )
                         accessor = accessor_kind(method)
                         if accessor in {"getter", "setter"}:
@@ -1313,6 +1590,7 @@ class Interpreter:
                             owner_type=type_obj,
                             globals_env=module_env,
                             is_static_method=has_static_method_decorator(method),
+                            is_class_method=has_classmethod_decorator(method),
                         )
                         accessor = accessor_kind(method)
                         if accessor in {"getter", "setter"}:

@@ -71,6 +71,11 @@ def has_static_method_decorator(decl: ast.FnDecl) -> bool:
     return any(decorator.name == "static_method" for decorator in decl.decorators)
 
 
+def has_classmethod_decorator(decl: ast.FnDecl) -> bool:
+    """Return whether a function is explicitly marked as a classmethod."""
+    return any(decorator.name == "classmethod" for decorator in decl.decorators)
+
+
 def accessor_kind(decl: ast.FnDecl) -> str | None:
     """Return the accessor role for a method, if any.
 
@@ -588,13 +593,13 @@ class SemanticAnalyzer:
             return
 
         if isinstance(stmt, ast.ForStmt):
-            iterable_type = self._analyze_expr(stmt.iterable, scope, as_callee=False)
-            if iterable_type != "range":
-                self._add_error("E2035", "for-loops currently require a range expression like '0..n'", stmt.span.line, stmt.span.column)
+            self._analyze_expr(stmt.iterable, scope, as_callee=False)
             body_scope = Scope(parent=scope)
             body_scope.define(stmt.var_name, "i32")
             for inner in stmt.body:
                 self._analyze_stmt(inner, body_scope, fn_decl, loop_depth=loop_depth + 1, except_depth=except_depth)
+            for inner in stmt.else_body if hasattr(stmt, "else_body") else []:
+                self._analyze_stmt(inner, body_scope, fn_decl, loop_depth=loop_depth, except_depth=except_depth)
             return
 
         if isinstance(stmt, ast.BreakStmt):

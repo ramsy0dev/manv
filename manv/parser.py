@@ -100,14 +100,17 @@ class Parser:
     def _parse_type_decl(self) -> ast.TypeDecl:
         type_tok = self._prev()
         name_tok = self._expect("IDENT", message="expected type name")
-        base_name: str | None = None
+        base_names: list[str] = []
         if self._match_op("("):
             base_tok = self._expect("IDENT", message="expected base type name")
-            base_name = base_tok.lexeme
+            base_names.append(base_tok.lexeme)
+            while self._match_op(","):
+                base_tok = self._expect("IDENT", message="expected base type name")
+                base_names.append(base_tok.lexeme)
             self._expect_op(")")
         self._expect_op(":")
         docstring, attrs, methods = self._parse_type_block("type")
-        return ast.TypeDecl(name=name_tok.lexeme, base_name=base_name, attrs=attrs, methods=methods, span=self._span(type_tok), docstring=docstring)
+        return ast.TypeDecl(name=name_tok.lexeme, attrs=attrs, methods=methods, span=self._span(type_tok), base_names=base_names, docstring=docstring)
 
     def _parse_impl_decl(self) -> ast.ImplDecl:
         impl_tok = self._prev()

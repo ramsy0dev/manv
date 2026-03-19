@@ -1,0 +1,57 @@
+# Path manipulation with OOP wrapper
+
+class Path:
+    fn __init__(self, path):
+        self.path = path
+
+    fn join(self, other) -> Path:
+        return Path(__intrin.fs_path_join(self.path, other))
+
+    fn basename(self) -> str:
+        return __intrin.fs_path_basename(self.path)
+
+    fn dirname(self) -> Path:
+        return Path(__intrin.fs_path_dirname(self.path))
+
+    fn stem(self) -> str:
+        let base = __intrin.fs_path_basename(self.path)
+        let dot_idx = __intrin.str_rfind(base, ".")
+        if dot_idx < 0:
+            return base
+        return __intrin.str_slice(base, 0, dot_idx)
+
+    fn suffix(self) -> str:
+        let base = __intrin.fs_path_basename(self.path)
+        let dot_idx = __intrin.str_rfind(base, ".")
+        if dot_idx < 0:
+            return ""
+        return __intrin.str_slice(base, dot_idx, __intrin.str_length(base))
+
+    fn normalize(self) -> Path:
+        return Path(__intrin.fs_path_normalize(self.path))
+
+    fn is_abs(self) -> bool:
+        return __intrin.fs_path_is_abs(self.path)
+
+    fn exists(self) -> bool:
+        return __intrin.fs_exists(self.path)
+
+    fn to_str(self) -> str:
+        return self.path
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Path(", __intrin.str_concat(self.path, ")"))
+
+    fn __eq__(self, other) -> bool:
+        if isinstance(other, Path):
+            return self.path == other.path
+        return false
+
+    fn __add__(self, other) -> Path:
+        if isinstance(other, Path):
+            return self.join(other.path)
+        return self.join(str(other))
+
+    @static_method
+    fn cwd() -> Path:
+        return Path(__intrin.fs_getcwd())

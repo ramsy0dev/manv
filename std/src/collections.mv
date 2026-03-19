@@ -99,3 +99,275 @@ fn map_values(m: map) -> array:
 fn map_has_key(m: map, key) -> bool:
     "Returns true if the key exists in the map."
     return __intrin.core_map_has_key(m, key)
+
+
+# OOP Collection Classes
+
+class Stack:
+    fn __init__(self):
+        self.items = []
+
+    fn push(self, item):
+        __intrin.core_array_push(self.items, item)
+
+    fn pop(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("pop from empty stack")
+        let idx = len(self.items) - 1
+        let val = self.items[idx]
+        self.items = __intrin.core_array_slice(self.items, 0, idx)
+        return val
+
+    fn peek(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("peek on empty stack")
+        return self.items[len(self.items) - 1]
+
+    fn is_empty(self) -> bool:
+        return len(self.items) == 0
+
+    fn __len__(self) -> int:
+        return len(self.items)
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Stack(", __intrin.str_concat(__intrin.core_repr(self.items), ")"))
+
+class Queue:
+    fn __init__(self):
+        self.items = []
+
+    fn enqueue(self, item):
+        __intrin.core_array_push(self.items, item)
+
+    fn dequeue(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("dequeue from empty queue")
+        let val = self.items[0]
+        self.items = __intrin.core_array_slice(self.items, 1, len(self.items))
+        return val
+
+    fn front(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("front of empty queue")
+        return self.items[0]
+
+    fn is_empty(self) -> bool:
+        return len(self.items) == 0
+
+    fn __len__(self) -> int:
+        return len(self.items)
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Queue(", __intrin.str_concat(__intrin.core_repr(self.items), ")"))
+
+class Deque:
+    fn __init__(self):
+        self.items = []
+
+    fn push_front(self, item):
+        let new_items = [item]
+        for x in self.items:
+            __intrin.core_array_push(new_items, x)
+        self.items = new_items
+
+    fn push_back(self, item):
+        __intrin.core_array_push(self.items, item)
+
+    fn pop_front(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("pop_front from empty deque")
+        let val = self.items[0]
+        self.items = __intrin.core_array_slice(self.items, 1, len(self.items))
+        return val
+
+    fn pop_back(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("pop_back from empty deque")
+        let idx = len(self.items) - 1
+        let val = self.items[idx]
+        self.items = __intrin.core_array_slice(self.items, 0, idx)
+        return val
+
+    fn front(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("front of empty deque")
+        return self.items[0]
+
+    fn back(self) -> any:
+        if len(self.items) == 0:
+            raise IndexError("back of empty deque")
+        return self.items[len(self.items) - 1]
+
+    fn is_empty(self) -> bool:
+        return len(self.items) == 0
+
+    fn __len__(self) -> int:
+        return len(self.items)
+
+class Set:
+    fn __init__(self):
+        self.data = {}
+
+    fn add(self, item):
+        self.data[item] = true
+
+    fn remove(self, item):
+        if __intrin.core_map_has_key(self.data, item):
+            __intrin.core_map_delete(self.data, item)
+
+    fn contains(self, item) -> bool:
+        return __intrin.core_map_has_key(self.data, item)
+
+    fn __contains__(self, item) -> bool:
+        return __intrin.core_map_has_key(self.data, item)
+
+    fn union(self, other) -> Set:
+        let result = Set()
+        for k in __intrin.core_map_keys(self.data):
+            result.add(k)
+        for k in __intrin.core_map_keys(other.data):
+            result.add(k)
+        return result
+
+    fn intersection(self, other) -> Set:
+        let result = Set()
+        for k in __intrin.core_map_keys(self.data):
+            if other.contains(k):
+                result.add(k)
+        return result
+
+    fn difference(self, other) -> Set:
+        let result = Set()
+        for k in __intrin.core_map_keys(self.data):
+            if not other.contains(k):
+                result.add(k)
+        return result
+
+    fn to_array(self) -> array:
+        return __intrin.core_map_keys(self.data)
+
+    fn __len__(self) -> int:
+        return len(__intrin.core_map_keys(self.data))
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Set(", __intrin.str_concat(__intrin.core_repr(self.to_array()), ")"))
+
+class Counter:
+    fn __init__(self):
+        self.data = {}
+
+    fn add(self, item):
+        if __intrin.core_map_has_key(self.data, item):
+            self.data[item] = self.data[item] + 1
+        else:
+            self.data[item] = 1
+
+    fn count(self, item) -> int:
+        if __intrin.core_map_has_key(self.data, item):
+            return self.data[item]
+        return 0
+
+    fn most_common(self) -> array:
+        let pairs = []
+        for k in __intrin.core_map_keys(self.data):
+            __intrin.core_array_push(pairs, [k, self.data[k]])
+        let n = len(pairs)
+        let i = 0
+        while i < n:
+            let j = i + 1
+            while j < n:
+                if pairs[j][1] > pairs[i][1]:
+                    let tmp = pairs[i]
+                    pairs[i] = pairs[j]
+                    pairs[j] = tmp
+                j = j + 1
+            i = i + 1
+        return pairs
+
+    fn total(self) -> int:
+        let sum = 0
+        for k in __intrin.core_map_keys(self.data):
+            sum = sum + self.data[k]
+        return sum
+
+    fn __getitem__(self, item) -> int:
+        return self.count(item)
+
+    fn __repr__(self) -> str:
+        return __intrin.str_concat("Counter(", __intrin.str_concat(__intrin.core_repr(self.data), ")"))
+
+class OrderedMap:
+    fn __init__(self):
+        self.data = {}
+        self.key_order = []
+
+    fn set(self, key, value):
+        if not __intrin.core_map_has_key(self.data, key):
+            __intrin.core_array_push(self.key_order, key)
+        self.data[key] = value
+
+    fn get(self, key) -> any:
+        if __intrin.core_map_has_key(self.data, key):
+            return self.data[key]
+        return none
+
+    fn has(self, key) -> bool:
+        return __intrin.core_map_has_key(self.data, key)
+
+    fn remove(self, key):
+        if __intrin.core_map_has_key(self.data, key):
+            __intrin.core_map_delete(self.data, key)
+            let new_order = []
+            for k in self.key_order:
+                if k != key:
+                    __intrin.core_array_push(new_order, k)
+            self.key_order = new_order
+
+    fn keys(self) -> array:
+        return self.key_order
+
+    fn values(self) -> array:
+        let result = []
+        for k in self.key_order:
+            __intrin.core_array_push(result, self.data[k])
+        return result
+
+    fn items(self) -> array:
+        let result = []
+        for k in self.key_order:
+            __intrin.core_array_push(result, [k, self.data[k]])
+        return result
+
+    fn __getitem__(self, key) -> any:
+        return self.get(key)
+
+    fn __setitem__(self, key, value):
+        self.set(key, value)
+
+    fn __len__(self) -> int:
+        return len(self.key_order)
+
+class DefaultMap:
+    fn __init__(self, default_fn):
+        self.data = {}
+        self.default_fn = default_fn
+
+    fn get(self, key) -> any:
+        if not __intrin.core_map_has_key(self.data, key):
+            self.data[key] = self.default_fn()
+        return self.data[key]
+
+    fn set(self, key, value):
+        self.data[key] = value
+
+    fn __getitem__(self, key) -> any:
+        return self.get(key)
+
+    fn __setitem__(self, key, value):
+        self.data[key] = value
+
+    fn keys(self) -> array:
+        return __intrin.core_map_keys(self.data)
+
+    fn values(self) -> array:
+        return __intrin.core_map_values(self.data)

@@ -31,7 +31,7 @@ def lower_ast_to_hir(program: ast.Program, source_name: str) -> HIRModule:
                 {
                     "kind": "type",
                     "name": decl.name,
-                    "base": decl.base_name,
+                    "base": decl.base_names[0] if decl.base_names else None,
                     "methods": [m.name for m in decl.methods],
                 }
             )

@@ -2,20 +2,10 @@
 fn add(a: f32, b: f32) -> f32:
     return a + b
 
-
-class User:
-    fn __init__(self, name: str, age: int) -> none:
-        self.name = name
-        self.age = age
-    
-
 fn main() -> none:
-    let user = User("Mohamed", 20)
-    user.repr()
-
     map m = {"k": 1}
     array nums[3] = [1, 2]
     nums[2] = add(nums[0], nums[1])
     m["k2"] = nums[2]
-    print(m)
+    print(nums)
 

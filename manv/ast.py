@@ -104,10 +104,10 @@ class TypeAttrDecl:
 @dataclass
 class TypeDecl:
     name: str
-    base_name: str | None
     attrs: list[TypeAttrDecl]
     methods: list[FnDecl]
     span: Span
+    base_names: list[str] = field(default_factory=list)
     docstring: str | None = None
 
 
