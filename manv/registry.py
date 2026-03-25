@@ -253,6 +253,48 @@ def fetch_registry_package(name: str, *, registry_url: str, token: str | None) -
     return None
 
 
+def download_package_archive(
+    name: str,
+    version: str,
+    *,
+    registry_url: str,
+    token: str | None,
+) -> bytes:
+    """Downloads the package archive (.tar.gz) from the registry.
+
+    Tries standard URL patterns in order. Raises ManvError on failure.
+    """
+    base = _normalize_registry_url(registry_url)
+    safe_name = url_parse.quote(name)
+    safe_ver = url_parse.quote(version)
+    candidates = [
+        f"{base}/api/v1/packages/{safe_name}/{safe_ver}/download",
+        f"{base}/v1/packages/{safe_name}/{safe_ver}/download",
+        f"{base}/packages/{safe_name}/{safe_ver}/download",
+    ]
+
+    headers: dict[str, str] = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    last_err = "unknown error"
+    for url in candidates:
+        req = url_request.Request(url, headers=headers, method="GET")
+        try:
+            with url_request.urlopen(req, timeout=30) as resp:
+                return resp.read()  # type: ignore[return-value]
+        except url_error.HTTPError as err:
+            last_err = f"HTTP {err.code}"
+            if err.code == 404:
+                continue
+        except Exception as exc:
+            last_err = str(exc)
+
+    raise ManvError(
+        diag("E8301", f"could not download '{name}@{version}' from registry: {last_err}", "packages", 1, 1)
+    )
+
+
 def _normalize_registry_url(url: str) -> str:
     return url.strip().rstrip("/")
 

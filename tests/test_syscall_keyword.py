@@ -8,6 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_STD_SRC = ROOT.parent / "std" / "src"
+if not _STD_SRC.is_dir():
+    _STD_SRC = ROOT / "std" / "src"
+
 from manv.intrinsics import invoke_intrinsic
 from manv.runner import run_file
 
@@ -53,7 +57,7 @@ def test_syscall_expression_form(tmp_path: Path) -> None:
 
 
 def test_bundled_std_has_typed_syscall_wrappers() -> None:
-    std_main = ROOT / "std" / "src" / "main.mv"
+    std_main = _STD_SRC / "main.mv"
     text = std_main.read_text(encoding="utf-8")
     assert "fn std_syscall_posix(number: int, args: array) -> map:" in text
     assert "fn std_syscall_windows(name: str, args: array) -> map:" in text

@@ -59,8 +59,9 @@ KEYWORDS = {
     "class",
     "impl",
     "macro",
-    "import",
-    "from",
+    "module",
+    "include",
+    "from",    # contextual keyword: used in `include <name> from <module>`
     "try",
     "except",
     "finally",

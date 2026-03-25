@@ -98,10 +98,17 @@ def _stmt_to_hir(stmt: object) -> HIRStatement:
                 "array_size": _expr_to_hir(stmt.array_size),
             },
         )
-    if isinstance(stmt, ast.ImportStmt):
-        # Keep `level` so relative-import semantics survive lowering.
-        return HIRStatement(kind="import", attrs={"module": stmt.module, "alias": stmt.alias, "level": stmt.level})
-    if isinstance(stmt, ast.FromImportStmt):
+    if isinstance(stmt, ast.ModuleDecl):
+        # Pure metadata annotation — carries no runtime semantics in this IR.
+        return HIRStatement(kind="module_decl", attrs={"name": stmt.name})
+    if isinstance(stmt, ast.IncludeStmt):
+        # Whole-module include maps to the existing "import" HIR kind;
+        # specific-name include maps to "from_import".  Level encodes relative depth.
+        if stmt.name is None:
+            return HIRStatement(
+                kind="import",
+                attrs={"module": stmt.module, "alias": stmt.alias, "level": stmt.level},
+            )
         return HIRStatement(
             kind="from_import",
             attrs={"module": stmt.module, "name": stmt.name, "alias": stmt.alias, "level": stmt.level},

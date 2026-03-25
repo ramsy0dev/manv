@@ -491,14 +491,19 @@ class SemanticAnalyzer:
                 self._add_error("E2002", f"type mismatch for '{stmt.name}': expected {stmt.type_name}, got {value_type}", stmt.span.line, stmt.span.column)
             return
 
-        if isinstance(stmt, ast.ImportStmt):
-            bind = stmt.alias if stmt.alias else stmt.module.split(".")[-1]
-            scope.define(bind, "module")
+        if isinstance(stmt, ast.ModuleDecl):
+            # Module declarations are pure metadata; no binding is introduced.
             return
 
-        if isinstance(stmt, ast.FromImportStmt):
-            bind = stmt.alias if stmt.alias else stmt.name
-            scope.define(bind, None)
+        if isinstance(stmt, ast.IncludeStmt):
+            if stmt.name is None:
+                # Whole-module include: bind as alias or leaf of dotted path.
+                bind = stmt.alias if stmt.alias else stmt.module.split(".")[-1]
+                scope.define(bind, "module")
+            else:
+                # Specific-name include: bind as alias or the symbol name itself.
+                bind = stmt.alias if stmt.alias else stmt.name
+                scope.define(bind, None)
             return
 
         if isinstance(stmt, ast.AssignStmt):
@@ -595,7 +600,10 @@ class SemanticAnalyzer:
         if isinstance(stmt, ast.ForStmt):
             self._analyze_expr(stmt.iterable, scope, as_callee=False)
             body_scope = Scope(parent=scope)
-            body_scope.define(stmt.var_name, "i32")
+            # Range loops (a..b) produce integer indices; array/string
+            # iteration produces opaque elements typed as None (any).
+            loop_var_type = "i32" if isinstance(stmt.iterable, ast.RangeExpr) else None
+            body_scope.define(stmt.var_name, loop_var_type)
             for inner in stmt.body:
                 self._analyze_stmt(inner, body_scope, fn_decl, loop_depth=loop_depth + 1, except_depth=except_depth)
             for inner in stmt.else_body if hasattr(stmt, "else_body") else []:

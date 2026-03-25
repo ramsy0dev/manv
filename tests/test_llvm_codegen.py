@@ -9,6 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# std lives in a sibling repo; fall back to the in-tree copy if present
+_STD_SRC = ROOT.parent / "std" / "src"
+if not _STD_SRC.is_dir():
+    _STD_SRC = ROOT / "std" / "src"  # legacy in-tree location (may not exist)
+
 from manv.compiler import analyze_program, parse_program
 from manv.hlir_lowering import lower_ast_to_hlir
 from manv.llvm_codegen import LlvmLoweringError, emit_llvm_module
@@ -62,7 +67,7 @@ def test_llvm_lowering_supports_arrays_maps_and_core_len() -> None:
         "    print((__intrin.core_len(xs) > 0) and true)\n"
     )
 
-    path = "std/src/llvm_containers.mv"
+    path = str(_STD_SRC / "llvm_containers.mv")
     program = parse_program(source, path)
     analyze_program(program, path)
     module = lower_ast_to_hlir(program, path)

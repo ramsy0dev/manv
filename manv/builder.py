@@ -135,7 +135,7 @@ def _build_native_executable(
         written = compile_target(
             context.entry,
             native_out_dir,
-            emit=["llvm_ir", "hlir", "graph", "kernel", "gpu_report", "native_exe"],
+            emit=["native_exe", *context.build_emit],
             backend=device_backend if device_backend != "auto" else "none",
             optimize=True,
             target_name=host_target,

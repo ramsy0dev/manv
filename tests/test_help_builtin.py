@@ -64,7 +64,7 @@ def test_help_builtin_displays_module_docstring(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     source = (
-        "import tools\n"
+        "include tools\n"
         "fn main() -> int:\n"
         "    help(tools)\n"
         "    return 0\n"

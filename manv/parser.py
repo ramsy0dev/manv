@@ -48,6 +48,10 @@ class Parser:
                 if decorators:
                     self._error("E1012", "decorators are only supported on functions", self._current())
                 declarations.append(self._parse_macro_decl_stub())
+            elif self._match_keyword("module"):
+                if decorators:
+                    self._error("E1012", "decorators are not supported on module declarations", self._current())
+                declarations.append(self._parse_module_decl())
             else:
                 if decorators:
                     self._error("E1012", "decorators must appear immediately before a function declaration", self._current())
@@ -222,14 +226,10 @@ class Parser:
             # Local function declaration — defines a named function in current scope.
             decl = self._parse_fn_decl()
             return decl
-        if self._match_keyword("import"):
-            stmt = self._parse_import_stmt()
-            self._consume_required_newline("expected newline after import")
-            return stmt
-        if self._match_keyword("from"):
-            stmts = self._parse_from_import_list()
-            self._consume_required_newline("expected newline after from-import")
-            return stmts
+        if self._match_keyword("include"):
+            result = self._parse_include_stmt()
+            self._consume_required_newline("expected newline after include")
+            return result
         if self._is_c_declaration_start():
             stmt = self._parse_c_decl_stmt()
             self._consume_required_newline("expected newline after declaration")
@@ -442,39 +442,165 @@ class Parser:
             span=self._span(try_tok),
         )
 
-    def _parse_import_stmt(self) -> ast.ImportStmt:
-        tok = self._prev()
-        # Absolute imports must always include at least one module segment.
-        module, level = self._parse_module_path(allow_empty=False)
-        # Python-like rule: relative imports must use `from ... import ...`.
-        if level > 0:
-            self._error("E1004", "relative import requires 'from ... import ...' form", tok)
-        alias: str | None = None
+    def _parse_module_decl(self) -> ast.ModuleDecl:
+        """Parse ``module <name>`` declaration at top of file.
+
+        Accepts dotted names: ``module pkg.sub.leaf``.
+        """
+        tok = self._prev()  # 'module' keyword already consumed
+        name_tok = self._expect("IDENT", message="expected module name after 'module'")
+        parts = [name_tok.lexeme]
+        while self._match_op("."):
+            seg = self._expect("IDENT", message="expected module name segment after '.'")
+            parts.append(seg.lexeme)
+        self._consume_required_newline("expected newline after module declaration")
+        return ast.ModuleDecl(name=".".join(parts), span=self._span(tok))
+
+    def _parse_include_stmt(self) -> ast.IncludeStmt | list[ast.IncludeStmt]:
+        """Parse ``include`` statement in all supported forms.
+
+        Forms parsed:
+        - ``include mymod``                      whole-module, bound as ``mymod``
+        - ``include mymod as m``                 whole-module, bound as ``m``
+        - ``include pkg.sub``                    whole-module, bound as ``sub``
+        - ``include Foo from mymod``             single name
+        - ``include Foo from mymod as F``        single name with alias
+        - ``include A, B from mymod``            multiple names → list[IncludeStmt]
+        - ``include A as X, B as Y from mymod`` multiple names with per-name aliases
+        - ``include Foo from .sibling``          relative single name
+
+        Disambiguation rule: after leading dots + first IDENT, if the next token
+        is ``,`` or keyword ``from`` → name-include form; otherwise → whole-module form.
+        """
+        tok = self._prev()  # 'include' keyword already consumed
+
+        # Leading dots encode relative depth (same convention as old import).
+        level = 0
+        while self._match_op(".."):
+            level += 2
+        while self._match_op("."):
+            level += 1
+
+        first_tok = self._expect_module_name("expected name or module path after 'include'")
+        first = first_tok.lexeme
+
+        # ── Disambiguation ────────────────────────────────────────────────────
+        # We need to decide between the name-include and whole-module forms.
+        # The tricky case is `include A as X from mymod` where `as` appears
+        # before `from`; a simple single-token lookahead would miss this.
+        #
+        # Rules after reading the first IDENT:
+        #   `,`  after first → name-include (multiple names)
+        #   `.`  after first → whole-module (dotted path)
+        #   `as` after first → tentatively read alias, then re-discriminate:
+        #       `,` or `from` next → name-include (A as X [, B ...] from mod)
+        #       otherwise          → whole-module (mod as alias)
+        #   `from` after first → name-include (no alias on first name)
+        #   anything else      → whole-module (bare module name)
+
+        if self._current_is_op(",") or self._current_is_keyword("from"):
+            # Unambiguous name-include.
+            names: list[tuple[str, str | None]] = [(first, None)]
+            while self._match_op(","):
+                name_tok2 = self._expect("IDENT", message="expected symbol name")
+                alias2: str | None = None
+                if self._match_keyword("as"):
+                    alias_tok3 = self._expect("IDENT", message="expected alias after 'as'")
+                    alias2 = alias_tok3.lexeme
+                names.append((name_tok2.lexeme, alias2))
+            if not self._match_keyword("from"):
+                self._error("E1004", "expected 'from' in include statement", self._current())
+            mod_path, mod_level = self._parse_module_path(allow_empty=True)
+            if level == 0:
+                level = mod_level
+            if len(names) == 1:
+                name_s, alias_s = names[0]
+                return ast.IncludeStmt(
+                    module=mod_path, name=name_s, alias=alias_s,
+                    span=self._span(tok), level=level,
+                )
+            return [
+                ast.IncludeStmt(module=mod_path, name=n, alias=a,
+                                span=self._span(tok), level=level)
+                for n, a in names
+            ]
+
+        if self._current_is_keyword("as"):
+            # Could be either form — consume the alias token then check what follows.
+            self._advance()  # consume 'as'
+            alias_tok2 = self._expect("IDENT", message="expected alias after 'as'")
+            tentative_alias = alias_tok2.lexeme
+
+            if self._current_is_op(",") or self._current_is_keyword("from"):
+                # name-include: include A as X [, B as Y ...] from mod
+                names2: list[tuple[str, str | None]] = [(first, tentative_alias)]
+                while self._match_op(","):
+                    name_tok3 = self._expect("IDENT", message="expected symbol name")
+                    alias3: str | None = None
+                    if self._match_keyword("as"):
+                        alias_tok4 = self._expect("IDENT", message="expected alias after 'as'")
+                        alias3 = alias_tok4.lexeme
+                    names2.append((name_tok3.lexeme, alias3))
+                if not self._match_keyword("from"):
+                    self._error("E1004", "expected 'from' in include statement", self._current())
+                mod_path2, mod_level2 = self._parse_module_path(allow_empty=True)
+                if level == 0:
+                    level = mod_level2
+                if len(names2) == 1:
+                    name_s2, alias_s2 = names2[0]
+                    return ast.IncludeStmt(
+                        module=mod_path2, name=name_s2, alias=alias_s2,
+                        span=self._span(tok), level=level,
+                    )
+                return [
+                    ast.IncludeStmt(module=mod_path2, name=n, alias=a,
+                                    span=self._span(tok), level=level)
+                    for n, a in names2
+                ]
+            else:
+                # whole-module: include mymod as alias
+                return ast.IncludeStmt(
+                    module=first, name=None, alias=tentative_alias,
+                    span=self._span(tok), level=level,
+                )
+
+        # ── whole-module form: include pkg[.sub] [as alias] ──
+        parts = [first]
+        while self._match_op("."):
+            if not self._is_module_segment_token(self._current()):
+                self._error("E1004", "expected module path segment", self._current())
+            parts.append(self._advance().lexeme)
+        alias_wm: str | None = None
         if self._match_keyword("as"):
-            alias_tok = self._expect("IDENT", message="expected alias after 'as'")
-            alias = alias_tok.lexeme
-        return ast.ImportStmt(module=module, alias=alias, span=self._span(tok), level=level)
+            alias_tok_wm = self._expect("IDENT", message="expected alias after 'as'")
+            alias_wm = alias_tok_wm.lexeme
+        return ast.IncludeStmt(
+            module=".".join(parts), name=None, alias=alias_wm,
+            span=self._span(tok), level=level,
+        )
 
-    def _parse_from_import_list(self) -> list[ast.FromImportStmt]:
-        tok = self._prev()
-        # `from . import x` is valid, so this path allows an empty module suffix.
-        module, level = self._parse_module_path(allow_empty=True)
-        if not self._match_keyword("import"):
-            self._error("E1004", "expected 'import' in from-import statement", self._current())
-        results: list[ast.FromImportStmt] = []
-        while True:
-            name_tok = self._expect("IDENT", message="expected imported symbol name")
-            alias: str | None = None
-            if self._match_keyword("as"):
-                alias_tok = self._expect("IDENT", message="expected alias after 'as'")
-                alias = alias_tok.lexeme
-            results.append(ast.FromImportStmt(module=module, name=name_tok.lexeme, alias=alias, span=self._span(tok), level=level))
-            if not self._match_op(","):
-                break
-        return results
+    def _current_is_op(self, op: str) -> bool:
+        """Return True if the current token is an operator matching *op*."""
+        t = self._current()
+        return t.kind == "OP" and t.lexeme == op
 
-    def _parse_from_import_stmt(self) -> ast.FromImportStmt:
-        return self._parse_from_import_list()[0]
+    def _current_is_keyword(self, kw: str) -> bool:
+        """Return True if the current token is a keyword matching *kw*."""
+        t = self._current()
+        return t.kind == "KEYWORD" and t.lexeme == kw
+
+    def _expect_module_name(self, message: str) -> Token:
+        """Accept an IDENT or a type-keyword that is valid as a module name.
+
+        Type keywords such as ``str``, ``int``, ``float`` are valid module
+        names (e.g. ``include str as s``).  A plain ``_expect("IDENT", ...)``
+        would reject them because the lexer classifies them as KEYWORD tokens.
+        """
+        tok = self._current()
+        if tok.kind == "IDENT" or self._is_module_segment_token(tok):
+            return self._advance()
+        self._error("E1004", message, tok)
+        raise AssertionError("unreachable")
 
     def _parse_module_path(self, *, allow_empty: bool) -> tuple[str, int]:
         # Leading dots encode relative depth.

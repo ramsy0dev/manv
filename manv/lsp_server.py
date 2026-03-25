@@ -311,6 +311,32 @@ def create_server() -> ManvLanguageServer:
         if name == "std":
             value = "**namespace** `std`\n\nStandard library root namespace."
             return Hover(contents=MarkupContent(kind=MarkupKind.Markdown, value=value))
+        if name == "include":
+            value = (
+                "**keyword** `include`\n\n"
+                "Imports a module or symbol into the current scope.\n\n"
+                "```manv\n"
+                "include mymod                    # whole-module, bound as mymod\n"
+                "include mymod as m               # whole-module with alias\n"
+                "include Foo from mymod           # specific symbol\n"
+                "include Foo from mymod as F      # specific symbol with alias\n"
+                "include A, B from mymod          # multiple symbols\n"
+                "include Foo from .sibling        # relative include\n"
+                "```"
+            )
+            return Hover(contents=MarkupContent(kind=MarkupKind.Markdown, value=value))
+        if name == "module":
+            value = (
+                "**keyword** `module`\n\n"
+                "Declares the canonical identity of this source file's module.\n\n"
+                "```manv\n"
+                "module mypackage\n"
+                "module pkg.sub.leaf\n"
+                "```\n\n"
+                "This is metadata — module resolution still uses file paths. "
+                "Place this declaration at the top of the file before any `include` statements."
+            )
+            return Hover(contents=MarkupContent(kind=MarkupKind.Markdown, value=value))
 
         matches = [s for s in analyzed.symbols if s.name == name]
         if not matches:
@@ -549,7 +575,22 @@ def _symbols_from_program(uri: str, program: ast.Program) -> list[SymbolEntry]:
     out: list[SymbolEntry] = []
 
     for decl in program.declarations:
-        if isinstance(decl, ast.FnDecl):
+        if isinstance(decl, ast.ModuleDecl):
+            # Expose the module name as a top-level module symbol so the LSP
+            # can show it in outline views and respond to workspace-symbol queries.
+            rng = _name_range(decl.span, decl.name.split(".")[-1])
+            out.append(
+                SymbolEntry(
+                    name=decl.name,
+                    kind="module",
+                    uri=uri,
+                    range=rng,
+                    selection_range=rng,
+                    detail=f"module {decl.name}",
+                    container=None,
+                )
+            )
+        elif isinstance(decl, ast.FnDecl):
             fn_sym = _fn_symbol(uri, decl, container=None)
             out.append(fn_sym)
             out.extend(_param_symbols(uri, decl, container=decl.name))
@@ -679,6 +720,25 @@ def _stmt_symbols(uri: str, statements: list[Any], *, container: str | None) -> 
                     range=rng,
                     selection_range=rng,
                     detail=f"let {stmt.name}: {normalize_type_name(stmt.type_name) or 'any'}",
+                    container=container,
+                )
+            )
+        elif isinstance(stmt, ast.IncludeStmt):
+            # Expose the bound name so go-to-definition and hover work on include targets.
+            bind = stmt.alias if stmt.alias else (stmt.name if stmt.name else stmt.module.split(".")[-1])
+            rng = _name_range(stmt.span, bind)
+            out.append(
+                SymbolEntry(
+                    name=bind,
+                    kind="module" if stmt.name is None else "variable",
+                    uri=uri,
+                    range=rng,
+                    selection_range=rng,
+                    detail=(
+                        f"include {stmt.module}"
+                        if stmt.name is None
+                        else f"include {stmt.name} from {stmt.module}"
+                    ),
                     container=container,
                 )
             )

@@ -5,8 +5,17 @@ Why this file exists:
   analysis, interpreter, and all lowering stages.
 - It is intentionally "dumb data" (dataclasses only) so every execution mode
   can consume the same structure without hidden behavior.
-- New language features (for example relative imports and class syntax aliases)
-  are represented here first so downstream passes stay synchronized.
+- New language features are represented here first so downstream passes stay
+  synchronized.
+
+Module system surface:
+- `module <name>` — declares the canonical identity of this file's module.
+- `include` — the single import keyword; three syntactic forms:
+    include <module>                    whole-module, bound as leaf or alias
+    include <module> as <alias>         whole-module with alias
+    include <name> from <module>        specific symbol, bound as name or alias
+    include <name> from <module> as <alias>
+    include <a>, <b> from <module>      multiple symbols (expands to list)
 """
 
 from __future__ import annotations
@@ -49,25 +58,47 @@ class Program:
     docstring: str | None = None
 
 
-# Import surface.
+# Module system surface.
 #
-# `level` follows Python-style semantics:
-# - 0 => absolute import
-# - 1 => current package (`from .x import y`)
-# - 2+ => parent package traversal (`from ..x import y`)
-@dataclass
-class ImportStmt:
-    module: str
-    alias: str | None
-    span: Span
-    level: int = 0
-
+# `level` on IncludeStmt follows the same relative-depth convention used by
+# the resolver:
+# - 0  => absolute
+# - 1  => current package  (`.sibling`)
+# - 2+ => parent traversal (`..parent.mod`)
 
 @dataclass
-class FromImportStmt:
-    module: str
+class ModuleDecl:
+    """Declares the canonical identity of this source file's module.
+
+    `module mypackage` (or `module pkg.sub`) at the top of a .mv file
+    registers a human-readable name that the runtime and tooling surface.
+    Module resolution still uses file paths; this is metadata, not a
+    replacement for path-based resolution.
+    """
     name: str
-    alias: str | None
+    span: Span
+
+
+@dataclass
+class IncludeStmt:
+    """New-style import statement.  All three syntactic forms desugar here.
+
+    Whole-module forms (name is None):
+        include mymod              → module="mymod", name=None, alias=None
+        include mymod as m         → module="mymod", name=None, alias="m"
+        include pkg.sub            → module="pkg.sub", name=None, alias=None
+
+    Single-name forms (name is not None):
+        include Foo from mymod         → module="mymod", name="Foo",  alias=None
+        include Foo from mymod as F    → module="mymod", name="Foo",  alias="F"
+
+    Multi-name form: the parser expands `include A, B from mymod` into a
+    list[IncludeStmt], one per name — the same pattern the old
+    from-import list used.  Each element has a distinct name and optional alias.
+    """
+    module: str
+    name: str | None       # None → whole-module include
+    alias: str | None      # binding alias (None → use name or leaf of module)
     span: Span
     level: int = 0
 

@@ -11,6 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_STD_SRC = ROOT.parent / "std" / "src"
+if not _STD_SRC.is_dir():
+    _STD_SRC = ROOT / "std" / "src"
+
 from manv import ast
 from manv.compiler import parse_program
 from manv.diagnostics import ManvError
@@ -79,10 +83,11 @@ def test_docstrings_are_metadata_only_and_do_not_reach_hlir() -> None:
     assert len(main_decl.body) == 1
 
 
-def test_math_stdlib_runtime_matches_in_interpreter_and_compiled(tmp_path: Path) -> None:
+def test_math_stdlib_runtime_matches_in_interpreter_and_compiled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MANV_PATH", str(_STD_SRC))
     source = (
-        "from math import approx_eq, tau, pi, is_nan, sqrt, is_inf, log\n"
-        "from math import TensorMath\n"
+        "include approx_eq, tau, pi, is_nan, sqrt, is_inf, log from math\n"
+        "include TensorMath from math\n"
         "fn main() -> int:\n"
         "    print(approx_eq(tau, pi * 2.0, 0.000001, 0.000001))\n"
         "    print(is_nan(sqrt(-1.0)))\n"
@@ -114,14 +119,14 @@ def test_math_stdlib_runtime_matches_in_interpreter_and_compiled(tmp_path: Path)
     ("source", "expected"),
     [
         (
-            "from math import abs\n"
+            "include abs from math\n"
             "fn main() -> int:\n"
             "    abs(-2147483648)\n"
             "    return 0\n",
             "OverflowError",
         ),
         (
-            "from math import TensorMath\n"
+            "include TensorMath from math\n"
             "fn main() -> int:\n"
             "    TensorMath([]).sum()\n"
             "    return 0\n",
@@ -129,7 +134,8 @@ def test_math_stdlib_runtime_matches_in_interpreter_and_compiled(tmp_path: Path)
         ),
     ],
 )
-def test_math_edge_errors_are_deterministic(tmp_path: Path, source: str, expected: str) -> None:
+def test_math_edge_errors_are_deterministic(tmp_path: Path, source: str, expected: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MANV_PATH", str(_STD_SRC))
     path = tmp_path / "main.mv"
     path.write_text(source, encoding="utf-8")
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import tomllib
 
@@ -22,6 +22,7 @@ class ProjectContext:
     target_dir: Path
     dist_dir: Path
     config_path: Path | None
+    build_emit: list[str] = field(default_factory=list)
 
 
 def discover_compile_target(path: str | Path | None) -> ProjectContext:
@@ -120,6 +121,7 @@ def discover_target(path: str | Path | None) -> ProjectContext:
             target_dir=candidate / str(cfg.get("target_dir", DEFAULT_TARGET_DIR)),
             dist_dir=candidate / str(cfg.get("dist_dir", DEFAULT_DIST_DIR)),
             config_path=config_path,
+            build_emit=cfg.get("build_emit", []),  # type: ignore[arg-type]
         )
 
     entry = candidate / DEFAULT_ENTRY
@@ -145,7 +147,7 @@ def _discover_config(root: Path) -> Path | None:
     return None
 
 
-def _read_project_config(path: Path) -> dict[str, str]:
+def _read_project_config(path: Path) -> dict[str, object]:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
 
     project = data.get("project", {})
@@ -178,11 +180,20 @@ def _read_project_config(path: Path) -> dict[str, str]:
         DEFAULT_DIST_DIR,
     )
 
+    build_emit: list[str] = []
+    if isinstance(tool_manv, dict) and "build-emit" in tool_manv:
+        raw = tool_manv["build-emit"]
+        if isinstance(raw, list):
+            build_emit = [str(x).strip() for x in raw if str(x).strip()]
+        elif isinstance(raw, str):
+            build_emit = [x.strip() for x in raw.split(",") if x.strip()]
+
     return {
         "name": str(name or ""),
         "entry": str(entry),
         "target_dir": str(target_dir),
         "dist_dir": str(dist_dir),
+        "build_emit": build_emit,
     }
 
 
@@ -199,25 +210,19 @@ def _first_non_empty(*values: object | None) -> object | None:
 def init_project(
     path: str | Path,
     *,
-    std: bool = False,
     name: str | None = None,
     description: str | None = None,
     author: str | None = None,
-    requires_python: str | None = None,
 ) -> ProjectContext:
     root = Path(path).resolve()
     root.mkdir(parents=True, exist_ok=True)
 
-    if std:
-        _init_std_project(root, description=description, author=author, requires_python=requires_python)
-    else:
-        _init_default_project(
-            root,
-            name=name,
-            description=description,
-            author=author,
-            requires_python=requires_python,
-        )
+    _init_default_project(
+        root,
+        name=name,
+        description=description,
+        author=author,
+    )
 
     return discover_target(root)
 
@@ -250,7 +255,6 @@ def _project_toml_template(
     *,
     description: str = "",
     author: str = "ManV Developer",
-    requires_python: str = ">=3.12",
 ) -> str:
     return (
         "[project]\n"
@@ -258,12 +262,12 @@ def _project_toml_template(
         "version = \"0.1.0\"\n"
         f"description = \"{_toml_string(description)}\"\n"
         "readme = \"README.md\"\n"
-        f"requires-python = \"{_toml_string(requires_python)}\"\n"
         f"authors = [{{ name = \"{_toml_string(author)}\" }}]\n\n"
         "[tool.manv]\n"
         f"entry = \"{DEFAULT_ENTRY}\"\n"
         f"target-dir = \"{DEFAULT_TARGET_DIR}\"\n"
         f"dist-dir = \"{DEFAULT_DIST_DIR}\"\n"
+        "# build-emit = [\"hlir\", \"graph\"]  # uncomment to emit extra build artifacts\n"
     )
 
 
@@ -273,7 +277,6 @@ def _init_default_project(
     name: str | None = None,
     description: str | None = None,
     author: str | None = None,
-    requires_python: str | None = None,
 ) -> None:
     src_dir = root / "src"
     src_dir.mkdir(parents=True, exist_ok=True)
@@ -283,7 +286,6 @@ def _init_default_project(
     project_name = (name or root.name).strip() or root.name
     project_description = (description or "").strip()
     project_author = (author or "ManV Developer").strip() or "ManV Developer"
-    project_python = (requires_python or ">=3.12").strip() or ">=3.12"
 
     _write_if_missing(root / ".gitignore", _default_gitignore_template())
     _write_if_missing(
@@ -292,13 +294,17 @@ def _init_default_project(
             project_name,
             description=project_description,
             author=project_author,
-            requires_python=project_python,
         ),
     )
+
+    # ManV identifiers cannot contain hyphens or dots; normalize for the module decl.
+    module_ident = project_name.replace("-", "_").replace(".", "_")
 
     _write_if_missing(
         src_dir / "main.mv",
         (
+            f"module {module_ident}\n"
+            "\n"
             "fn main() -> int:\n"
             "    print(\"Hello, World!\")\n"
             "    return 0\n"
@@ -317,61 +323,3 @@ def _init_default_project(
     )
 
 
-def _init_std_project(
-    root: Path,
-    *,
-    description: str | None = None,
-    author: str | None = None,
-    requires_python: str | None = None,
-) -> None:
-    src_dir = root / "src"
-    src_dir.mkdir(parents=True, exist_ok=True)
-    tests_dir = root / "tests" / "e2e" / "std_smoke"
-    tests_dir.mkdir(parents=True, exist_ok=True)
-
-    std_description = (description or "ManV standard library").strip() or "ManV standard library"
-    std_author = (author or "ManV Developer").strip() or "ManV Developer"
-    std_python = (requires_python or ">=3.12").strip() or ">=3.12"
-
-    _write_if_missing(root / ".gitignore", _default_gitignore_template())
-    _write_if_missing(
-        root / DEFAULT_CONFIG_FILE,
-        _project_toml_template(
-            "std",
-            description=std_description,
-            author=std_author,
-            requires_python=std_python,
-        ),
-    )
-    _write_if_missing(src_dir / "main.mv", _std_main_template())
-
-    _write_if_missing(
-        root / "README.md",
-        (
-            "# ManV std\n\n"
-            "This project is the intrinsic-backed standard library source for ManV.\n"
-            "All privileged runtime operations are expressed through `__intrin.*` wrappers.\n"
-        ),
-    )
-
-    _write_if_missing(
-        tests_dir / "case.toml",
-        (
-            "name = \"std_smoke\"\n"
-            "command = \"run\"\n"
-            "target = \"../../../\"\n"
-            "expect_exit = 0\n"
-            "expect_stdout_contains = [\"std ready\"]\n"
-        ),
-    )
-
-
-def _std_main_template() -> str:
-    bundled = Path(__file__).resolve().parents[1] / "std" / "src" / "main.mv"
-    if bundled.exists():
-        return bundled.read_text(encoding="utf-8")
-    return (
-        "fn main() -> int:\n"
-        "    print(\"std ready\")\n"
-        "    return 0\n"
-    )

@@ -196,7 +196,7 @@ def test_lsp_workspace_symbol_lookup_sees_stdlib_docstrings(tmp_path: Path) -> N
         encoding="utf-8",
     )
     main_path.write_text(
-        "from math import approx_eq\n"
+        "include approx_eq from math\n"
         "fn main() -> none:\n"
         "    print(approx_eq(0.0, 0.0, 0.0, 0.0))\n",
         encoding="utf-8",

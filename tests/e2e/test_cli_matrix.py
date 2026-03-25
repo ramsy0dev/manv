@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
 import json
 import re
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tomllib
 
 from typer.testing import CliRunner
@@ -34,24 +36,6 @@ def _copy_fixture(tmp_path: Path, name: str) -> Path:
     return target
 
 
-
-def test_init_std_command(tmp_path: Path) -> None:
-    target = tmp_path / "std"
-    result = runner.invoke(app, ["init", str(target), "--std"])
-    assert result.exit_code == 0
-    assert "[Init]" in result.stdout
-    assert "mode: std" in result.stdout
-    assert (target / "project.toml").exists()
-    assert (target / ".gitignore").exists()
-    assert (target / "src" / "main.mv").exists()
-
-    config = tomllib.loads((target / "project.toml").read_text(encoding="utf-8"))
-    assert config["project"]["name"] == "std"
-    assert ".manv/" in (target / ".gitignore").read_text(encoding="utf-8")
-
-    run = runner.invoke(app, ["run", str(target)])
-    assert run.exit_code == 0
-    assert "std ready" in run.stdout
 
 
 def test_init_command(tmp_path: Path) -> None:
@@ -83,8 +67,6 @@ def test_init_command_with_metadata_flags(tmp_path: Path) -> None:
             "Demo package",
             "--author",
             "Jane Dev",
-            "--python",
-            ">=3.12,<3.14",
         ],
     )
     assert result.exit_code == 0
@@ -92,8 +74,10 @@ def test_init_command_with_metadata_flags(tmp_path: Path) -> None:
     config = tomllib.loads((target / "project.toml").read_text(encoding="utf-8"))
     assert config["project"]["name"] == "demo-pkg"
     assert config["project"]["description"] == "Demo package"
-    assert config["project"]["requires-python"] == ">=3.12,<3.14"
     assert config["project"]["authors"][0]["name"] == "Jane Dev"
+    # verify module declaration was written to main.mv (hyphens normalized to underscores)
+    main_src = (target / "src" / "main.mv").read_text(encoding="utf-8")
+    assert main_src.startswith("module demo_pkg")
 
 
 def test_auth_login_status_logout(tmp_path: Path) -> None:
@@ -123,10 +107,23 @@ def test_auth_login_status_logout(tmp_path: Path) -> None:
     assert "logged_out" in status_after.stdout
 
 
+def _make_fake_tarball(filename: str, content: bytes) -> bytes:
+    """Helper: build a minimal .tar.gz with src/{filename}."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        info = tarfile.TarInfo(name=f"src/{filename}")
+        info.size = len(content)
+        tf.addfile(info, io.BytesIO(content))
+    return buf.getvalue()
+
+
 def test_add_registry_dependency(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
     project = _copy_fixture(tmp_path, "compile_ok")
     auth_file = tmp_path / "manv_auth.json"
-    env = {"MANV_AUTH_FILE": str(auth_file)}
+    manv_home = tmp_path / "manv_home"
+    env = {"MANV_AUTH_FILE": str(auth_file), "MANV_HOME": str(manv_home)}
 
     login = runner.invoke(
         app,
@@ -135,7 +132,10 @@ def test_add_registry_dependency(tmp_path: Path) -> None:
     )
     assert login.exit_code == 0
 
-    result = runner.invoke(app, ["add", "tensorx@1.2.3", str(project)], env=env)
+    fake_archive = _make_fake_tarball("tensorx.mv", b'fn hello() -> str:\n    return "hello"\n')
+    with patch("manv.registry.download_package_archive", return_value=fake_archive):
+        result = runner.invoke(app, ["add", "tensorx@1.2.3", str(project)], env=env)
+
     assert result.exit_code == 0
     assert "source: registry" in result.stdout
 
@@ -145,14 +145,34 @@ def test_add_registry_dependency(tmp_path: Path) -> None:
     assert deps["tensorx"]["version"] == "1.2.3"
     assert deps["tensorx"]["registry"] == "https://registry.example.com"
 
+    # Package was installed into the global cache
+    assert (manv_home / "packages" / "tensorx" / "1.2.3" / "src" / "tensorx.mv").exists()
+
 
 def test_add_git_dependency(tmp_path: Path) -> None:
-    project = _copy_fixture(tmp_path, "compile_ok")
+    from unittest.mock import patch
 
-    result = runner.invoke(
-        app,
-        ["add", "https://github.com/manv-lang/math.git", str(project), "--branch", "main"],
-    )
+    project = _copy_fixture(tmp_path, "compile_ok")
+    manv_home = tmp_path / "manv_home"
+    env = {"MANV_HOME": str(manv_home)}
+
+    fake_archive = _make_fake_tarball("sort.mv", b"fn sort(arr) -> array:\n    return arr\n")
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return fake_archive
+        def __enter__(self) -> _FakeResp:
+            return self
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    with patch("manv.packages.urllib.request.urlopen", return_value=_FakeResp()):
+        result = runner.invoke(
+            app,
+            ["add", "https://github.com/manv-lang/math.git", str(project), "--branch", "main"],
+            env=env,
+        )
+
     assert result.exit_code == 0
     assert "source: git" in result.stdout
 
@@ -161,6 +181,62 @@ def test_add_git_dependency(tmp_path: Path) -> None:
     assert "math" in deps
     assert deps["math"]["git"] == "https://github.com/manv-lang/math.git"
     assert deps["math"]["branch"] == "main"
+
+    # Package was installed into the cache under a git-{hash} version key
+    cache_pkg = manv_home / "packages" / "math"
+    installed = list(cache_pkg.iterdir()) if cache_pkg.exists() else []
+    assert any(v.name.startswith("git-") for v in installed)
+
+
+def test_install_command(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    manv_home = tmp_path / "manv_home"
+    env = {"MANV_HOME": str(manv_home)}
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "src").mkdir()
+    (project / "src" / "main.mv").write_text("module proj\nfn main() -> int:\n    return 0\n")
+    (project / "project.toml").write_text(
+        "[project]\nname = \"proj\"\nversion = \"0.1.0\"\n\n"
+        "[tool.manv]\nentry = \"src/main.mv\"\n\n"
+        "[tool.manv.dependencies]\nmath = {version = \"1.0.0\", registry = \"https://registry.example.com\"}\n"
+    )
+
+    fake_archive = _make_fake_tarball("math.mv", b"fn pi() -> float:\n    return 3.14159\n")
+    with patch("manv.registry.download_package_archive", return_value=fake_archive):
+        result = runner.invoke(app, ["install", str(project)], env=env)
+
+    assert result.exit_code == 0
+    assert "math" in result.stdout
+    assert (manv_home / "packages" / "math" / "1.0.0" / "src" / "math.mv").exists()
+
+
+def test_setup_installs_stdlib(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    manv_home = tmp_path / "manv_home"
+    env = {"MANV_HOME": str(manv_home)}
+
+    fake_archive = _make_fake_tarball("math.mv", b"fn pi() -> float:\n    return 3.14159\n")
+
+    class _FakeResp:
+        def read(self) -> bytes:
+            return fake_archive
+        def __enter__(self) -> _FakeResp:
+            return self
+        def __exit__(self, *_: object) -> None:
+            pass
+
+    with patch("manv.packages.urllib.request.urlopen", return_value=_FakeResp()):
+        result = runner.invoke(app, ["setup"], env=env)
+
+    assert result.exit_code == 0
+    assert "installed" in result.stdout
+    cache_std = manv_home / "packages" / "std"
+    installed = list(cache_std.iterdir()) if cache_std.exists() else []
+    assert any(v.name.startswith("git-") for v in installed)
 
 
 def test_run_command(tmp_path: Path) -> None:
@@ -210,6 +286,20 @@ def test_compile_cuda_ptx_backend(tmp_path: Path) -> None:
     ptx_source = ptx.read_text(encoding="utf-8")
     assert ptx_source.strip()
     assert ".visible .entry" in ptx_source or "PTX unavailable on this machine" in ptx_source
+
+
+def test_compile_default_emit_is_native_exe(tmp_path: Path) -> None:
+    project = _copy_fixture(tmp_path, "compile_ok")
+    result = runner.invoke(app, ["compile", str(project / "src" / "main.mv")])
+    # Must succeed (or fail only due to missing LLVM toolchain, not emit config).
+    if result.exit_code != 0:
+        assert "no LLVM toolchain found" in result.stderr
+        return
+    assert "[Compile]" in result.stdout
+    out_dir = project / "src" / ".manv" / "target"
+    # No intermediate IR artifacts should appear with the default emit.
+    for ir_suffix in ["ast.json", "hir.json", "hlir.json", "graph.json", "kernel.json"]:
+        assert not any(out_dir.glob(f"*.{ir_suffix}")), f"unexpected {ir_suffix} in default emit"
 
 
 def test_compile_parse_failure(tmp_path: Path) -> None:
@@ -283,7 +373,7 @@ def test_compile_accepts_directory_with_root_main_file(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = runner.invoke(app, ["compile", str(root)])
+    result = runner.invoke(app, ["compile", str(root), "--emit", "ast"])
     assert result.exit_code == 0
     assert "[Compile]" in result.stdout
     assert (root / ".manv" / "target" / "main.ast.json").exists()

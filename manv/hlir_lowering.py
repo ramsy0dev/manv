@@ -427,50 +427,69 @@ class HLIRLowerer:
             self._lower_let(state, stmt)
             return
 
-        if isinstance(stmt, ast.ImportStmt):
-            out = state.new_temp()
+        if isinstance(stmt, ast.ModuleDecl):
+            # Pure metadata annotation — no variable binding, no side effects.
+            # Emitted so HLIR instruction streams can surface canonical module
+            # identity to tooling (LSP, debugger, linker) without affecting
+            # runtime semantics.
             state.emit(
                 HInstruction(
-                    op="import",
-                    dest=out,
-                    type_name="module",
-                    # Preserve level metadata so runtime can resolve
-                    # absolute vs package-relative imports.
-                    attrs={"module": stmt.module, "alias": stmt.alias, "level": stmt.level},
-                    effects=["reads_memory", "writes_memory", "may_throw"],
+                    op="module_decl",
+                    attrs={"name": stmt.name},
+                    effects=[],
                 ),
                 node=stmt,
             )
-            bind = stmt.alias or stmt.module.split(".")[-1]
-            if bind not in state.declared_vars:
-                state.emit(
-                    HInstruction(op="declare_var", attrs={"name": bind, "type": "module"}, effects=["writes_memory"]),
-                    node=stmt,
-                )
-                state.declared_vars.add(bind)
-            state.emit(HInstruction(op="store_var", args=[bind, out], effects=["writes_memory"]), node=stmt)
             return
 
-        if isinstance(stmt, ast.FromImportStmt):
+        if isinstance(stmt, ast.IncludeStmt):
             out = state.new_temp()
-            state.emit(
-                HInstruction(
-                    op="from_import",
-                    dest=out,
-                    # `level` is the relative import depth (`.`, `..`, ...).
-                    attrs={"module": stmt.module, "name": stmt.name, "alias": stmt.alias, "level": stmt.level},
-                    effects=["reads_memory", "writes_memory", "may_throw"],
-                ),
-                node=stmt,
-            )
-            bind = stmt.alias or stmt.name
+            if stmt.name is None:
+                # Whole-module include — same runtime op as the old `import`.
+                state.emit(
+                    HInstruction(
+                        op="import",
+                        dest=out,
+                        type_name="module",
+                        attrs={"module": stmt.module, "alias": stmt.alias, "level": stmt.level},
+                        effects=["reads_memory", "writes_memory", "may_throw"],
+                    ),
+                    node=stmt,
+                )
+                bind = stmt.alias or stmt.module.split(".")[-1]
+                type_tag: str | None = "module"
+            else:
+                # Specific-name include — same runtime op as the old `from_import`.
+                state.emit(
+                    HInstruction(
+                        op="from_import",
+                        dest=out,
+                        attrs={
+                            "module": stmt.module,
+                            "name": stmt.name,
+                            "alias": stmt.alias,
+                            "level": stmt.level,
+                        },
+                        effects=["reads_memory", "writes_memory", "may_throw"],
+                    ),
+                    node=stmt,
+                )
+                bind = stmt.alias or stmt.name
+                type_tag = None
             if bind not in state.declared_vars:
                 state.emit(
-                    HInstruction(op="declare_var", attrs={"name": bind, "type": None}, effects=["writes_memory"]),
+                    HInstruction(
+                        op="declare_var",
+                        attrs={"name": bind, "type": type_tag},
+                        effects=["writes_memory"],
+                    ),
                     node=stmt,
                 )
                 state.declared_vars.add(bind)
-            state.emit(HInstruction(op="store_var", args=[bind, out], effects=["writes_memory"]), node=stmt)
+            state.emit(
+                HInstruction(op="store_var", args=[bind, out], effects=["writes_memory"]),
+                node=stmt,
+            )
             return
 
         if isinstance(stmt, ast.AssignStmt):

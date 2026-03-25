@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+_STD_SRC = ROOT.parent / "std" / "src"
+if not _STD_SRC.is_dir():
+    _STD_SRC = ROOT / "std" / "src"
+
 from manv.diagnostics import ManvError
 from manv.interpreter import Interpreter
 from manv.object_runtime import ExceptionObject, InstanceObject
@@ -214,8 +218,8 @@ def test_import_and_from_import_executes_module_code(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     source = (
-        "import util\n"
-        "from util import add as plus\n"
+        "include util\n"
+        "include add as plus from util\n"
         "fn main() -> int:\n"
         "    print(util.VALUE)\n"
         "    print(plus(1, 2))\n"
@@ -238,8 +242,8 @@ def test_import_module_cache_single_initialization(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     source = (
-        "import util as u1\n"
-        "import util as u2\n"
+        "include util as u1\n"
+        "include util as u2\n"
         "fn main() -> int:\n"
         "    print(u1.count())\n"
         "    print(u2.count())\n"
@@ -262,15 +266,15 @@ def test_relative_from_import_inside_package(tmp_path: Path) -> None:
     (pkg / "helpers.mv").write_text("let VALUE = 7\n", encoding="utf-8")
     (pkg / "mod.mv").write_text(
         (
-            "from . import CONST\n"
-            "from .helpers import VALUE\n"
+            "include CONST from .\n"
+            "include VALUE from .helpers\n"
             "fn read() -> int:\n"
             "    return CONST + VALUE\n"
         ),
         encoding="utf-8",
     )
     source = (
-        "import pkg.mod as mod\n"
+        "include pkg.mod as mod\n"
         "fn main() -> int:\n"
         "    print(mod.read())\n"
         "    return 0\n"
@@ -280,10 +284,10 @@ def test_relative_from_import_inside_package(tmp_path: Path) -> None:
     assert out.strip().splitlines() == ["12"]
 
 
-def test_relative_import_requires_package_context(tmp_path: Path) -> None:
-    # Relative imports from entry module should fail with deterministic ImportError.
+def test_relative_include_requires_package_context(tmp_path: Path) -> None:
+    # Relative includes from entry module should fail with deterministic ImportError.
     source = (
-        "from .util import add\n"
+        "include add from .util\n"
         "fn main() -> int:\n"
         "    return 0\n"
     )
@@ -296,21 +300,6 @@ def test_relative_import_requires_package_context(tmp_path: Path) -> None:
     assert "relative import requires package context" in rendered
 
 
-def test_relative_import_requires_from_syntax(tmp_path: Path) -> None:
-    # Python-like rule: `import .foo` is invalid; relative imports must use `from`.
-    source = (
-        "import .foo\n"
-        "fn main() -> int:\n"
-        "    return 0\n"
-    )
-    src = tmp_path / "main.mv"
-    src.write_text(source, encoding="utf-8")
-    with pytest.raises(ManvError) as err:
-        run_file(src, mode="interpreter")
-    rendered = err.value.render()
-    assert "relative import requires 'from ... import ...' form" in rendered
-
-
 def test_relative_from_import_parent_package_resolution(tmp_path: Path) -> None:
     # Validate `..` resolution from nested package module to parent package module.
     pkg = tmp_path / "pkg"
@@ -321,14 +310,14 @@ def test_relative_from_import_parent_package_resolution(tmp_path: Path) -> None:
     (pkg / "common.mv").write_text("let V = 40\n", encoding="utf-8")
     (sub / "mod.mv").write_text(
         (
-            "from ..common import V\n"
+            "include V from ..common\n"
             "fn read() -> int:\n"
             "    return V + 2\n"
         ),
         encoding="utf-8",
     )
     source = (
-        "import pkg.sub.mod as mod\n"
+        "include pkg.sub.mod as mod\n"
         "fn main() -> int:\n"
         "    print(mod.read())\n"
         "    return 0\n"
@@ -341,21 +330,21 @@ def test_relative_from_import_parent_package_resolution(tmp_path: Path) -> None:
 def test_import_cycle_returns_partial_module_objects(tmp_path: Path) -> None:
     (tmp_path / "a.mv").write_text(
         (
-            "import b\n"
+            "include b\n"
             "let A = 1\n"
         ),
         encoding="utf-8",
     )
     (tmp_path / "b.mv").write_text(
         (
-            "import a\n"
+            "include a\n"
             "let B = 2\n"
         ),
         encoding="utf-8",
     )
     source = (
-        "import a\n"
-        "import b\n"
+        "include a\n"
+        "include b\n"
         "fn main() -> int:\n"
         "    print(a.A)\n"
         "    print(b.B)\n"
@@ -375,7 +364,7 @@ def test_import_search_path_prefers_project_over_manv_path(tmp_path: Path, monke
     monkeypatch.setenv("MANV_PATH", str(lib))
 
     source = (
-        "import util\n"
+        "include util\n"
         "fn main() -> int:\n"
         "    print(util.VALUE)\n"
         "    return 0\n"
@@ -393,7 +382,7 @@ def test_import_search_path_uses_manv_path_fallback(tmp_path: Path, monkeypatch:
     monkeypatch.setenv("MANV_PATH", str(lib))
 
     source = (
-        "import util\n"
+        "include util\n"
         "fn main() -> int:\n"
         "    print(util.VALUE)\n"
         "    return 0\n"
@@ -404,11 +393,11 @@ def test_import_search_path_uses_manv_path_fallback(tmp_path: Path, monkeypatch:
 
 
 def test_bundled_std_module_import_without_project_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Clear MANV_PATH to ensure this resolves from bundled std fallback root.
-    monkeypatch.setenv("MANV_PATH", "")
+    # Std is now a separate package; resolve it via MANV_PATH pointing at std/src.
+    monkeypatch.setenv("MANV_PATH", str(_STD_SRC))
     source = (
-        "from builtins import sum as bsum\n"
-        "from builtins import len as blen\n"
+        "include sum as bsum from builtins\n"
+        "include len as blen from builtins\n"
         "fn main() -> int:\n"
         "    print(bsum([1, 2, 3]))\n"
         "    print(blen([7, 8]))\n"
@@ -421,10 +410,10 @@ def test_bundled_std_module_import_without_project_copy(tmp_path: Path, monkeypa
 
 def test_bundled_str_module_import_uses_str_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # `str` module name is intentional; avoid `string` naming in bootstrap API.
-    monkeypatch.setenv("MANV_PATH", "")
+    monkeypatch.setenv("MANV_PATH", str(_STD_SRC))
     source = (
-        "import str as s\n"
-        "from str import from_value as to_text\n"
+        "include str as s\n"
+        "include from_value as to_text from str\n"
         "fn main() -> int:\n"
         "    print(to_text(123))\n"
         "    print(s.length(\"abcd\"))\n"

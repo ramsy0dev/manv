@@ -58,6 +58,7 @@ class ModuleObject:
     name: str
     exports: dict[str, Any] = field(default_factory=dict)
     docstring: str | None = None
+    declared_name: str | None = None  # set by `module <name>` declaration in source
     _heap_id: int | None = None
 
 

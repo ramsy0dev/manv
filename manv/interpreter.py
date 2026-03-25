@@ -287,6 +287,13 @@ class Interpreter:
                     self._register_type_method(type_obj, method)
             elif isinstance(decl, ast.MacroDeclStub):
                 self._macros[decl.name] = decl
+            elif isinstance(decl, ast.ModuleDecl):
+                # Module declarations are metadata; record on the module object if available.
+                if self._module_exec_stack:
+                    canonical = self._module_exec_stack[-1]
+                    mod_obj = self.module_cache.get(canonical)
+                    if mod_obj is not None:
+                        mod_obj.declared_name = decl.name
             else:
                 raise unsupported_feature(type(decl).__name__, self.file, 1, 1)
 
@@ -335,20 +342,32 @@ class Interpreter:
             env.define(stmt.name, fn_val)
             return None
 
-        if isinstance(stmt, ast.ImportStmt):
-            # Import statement binds module object under alias or leaf name.
-            module = self._import_module(stmt.module, stmt.span, level=stmt.level)
-            bind = stmt.alias if stmt.alias else stmt.module.split(".")[-1]
-            env.define(bind, module)
+        if isinstance(stmt, ast.ModuleDecl):
+            # Store the canonical module name on the currently-loading ModuleObject
+            # so the runtime and tooling can surface it without reparsing the file.
+            if self._module_exec_stack:
+                canonical = self._module_exec_stack[-1]
+                mod_obj = self.module_cache.get(canonical)
+                if mod_obj is not None:
+                    mod_obj.declared_name = stmt.name
             return None
 
-        if isinstance(stmt, ast.FromImportStmt):
-            # From-import binds the requested symbol directly.
+        if isinstance(stmt, ast.IncludeStmt):
             module = self._import_module(stmt.module, stmt.span, level=stmt.level)
-            if stmt.name not in module.exports:
-                self._raise_runtime("ImportError", f"cannot import '{stmt.name}' from '{stmt.module}'", stmt.span)
-            bind = stmt.alias if stmt.alias else stmt.name
-            env.define(bind, module.exports[stmt.name])
+            if stmt.name is None:
+                # Whole-module include: bind under alias or leaf of dotted path.
+                bind = stmt.alias if stmt.alias else stmt.module.split(".")[-1]
+                env.define(bind, module)
+            else:
+                # Specific-name include: resolve symbol then bind.
+                if stmt.name not in module.exports:
+                    self._raise_runtime(
+                        "ImportError",
+                        f"cannot include '{stmt.name}' from '{stmt.module}'",
+                        stmt.span,
+                    )
+                bind = stmt.alias if stmt.alias else stmt.name
+                env.define(bind, module.exports[stmt.name])
             return None
 
         if isinstance(stmt, ast.AssignStmt):
@@ -1675,10 +1694,13 @@ class Interpreter:
                 if candidate.exists() and candidate.is_dir():
                     roots.append(candidate)
 
-        # Bundled std fallback enables bootstrapping without per-project copies.
-        bundled_std = (Path(__file__).resolve().parents[1] / "std" / "src").resolve()
-        if bundled_std.exists() and bundled_std.is_dir():
-            roots.append(bundled_std)
+        # Global package cache — installed ManV packages.
+        try:
+            from . import packages as _pkg_mod
+            for _pkg_root in _pkg_mod.installed_package_roots():
+                roots.append(_pkg_root)
+        except Exception:
+            pass  # package cache unavailable; proceed without it
 
         # Keep first-seen order while de-duplicating resolved directories.
         out: list[Path] = []

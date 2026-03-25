@@ -842,6 +842,19 @@ def _str_find(args: list[Any], **_: Any) -> int:
     return str(args[0]).find(str(args[1]))
 
 
+def _str_rfind(args: list[Any], **_: Any) -> int:
+    _ensure_arity("str_rfind", args, min_n=2, max_n=2)
+    _expect_type("str_rfind", args[0], "str")
+    _expect_type("str_rfind", args[1], "str")
+    return str(args[0]).rfind(str(args[1]))
+
+
+def _str_length(args: list[Any], **_: Any) -> int:
+    _ensure_arity("str_length", args, min_n=1, max_n=1)
+    _expect_type("str_length", args[0], "str")
+    return len(str(args[0]))
+
+
 def _str_char_at(args: list[Any], **_: Any) -> str:
     _ensure_arity("str_char_at", args, min_n=2, max_n=2)
     _expect_type("str_char_at", args[0], "str")
@@ -963,6 +976,27 @@ def _core_map_has_key(args: list[Any], **_: Any) -> bool:
     _ensure_arity("core_map_has_key", args, min_n=2, max_n=2)
     _expect_type("core_map_has_key", args[0], "map")
     return args[1] in args[0]
+
+
+def _core_map_delete(args: list[Any], **_: Any) -> None:
+    _ensure_arity("core_map_delete", args, min_n=2, max_n=2)
+    _expect_type("core_map_delete", args[0], "map")
+    args[0].pop(args[1], None)
+
+
+def _core_array_push(args: list[Any], **_: Any) -> None:
+    """Mutating push: appends element to the array in-place."""
+    _ensure_arity("core_array_push", args, min_n=2, max_n=2)
+    _expect_type("core_array_push", args[0], "array")
+    args[0].append(args[1])
+
+
+def _core_array_slice(args: list[Any], **_: Any) -> list[Any]:
+    _ensure_arity("core_array_slice", args, min_n=3, max_n=3)
+    _expect_type("core_array_slice", args[0], "array")
+    start = int(args[1])
+    stop = int(args[2])
+    return list(args[0])[start:stop]
 
 
 def _core_array_append(args: list[Any], **_: Any) -> list[Any]:
@@ -1437,11 +1471,18 @@ def _register_defaults() -> None:
     register_intrinsic(IntrinsicSpec("str_to_int", ["str"], "int", strfx, may_throw=True))
     register_intrinsic(IntrinsicSpec("str_to_float", ["str"], "float", strfx, may_throw=True))
     register_intrinsic(IntrinsicSpec("str_format", ["str", "array"], "str", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_length", ["str"], "int", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_rfind", ["str", "str"], "int", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_ord", ["str"], "int", strfx, may_throw=False))
+    register_intrinsic(IntrinsicSpec("str_chr", ["int"], "str", strfx, may_throw=False))
     register_intrinsic(IntrinsicSpec("core_map_keys", ["map"], "array", {Effect.PURE}, may_throw=False))
     register_intrinsic(IntrinsicSpec("core_map_values", ["map"], "array", {Effect.PURE}, may_throw=False))
     register_intrinsic(IntrinsicSpec("core_map_has_key", ["map", ANY_T], "bool", {Effect.PURE}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_map_delete", ["map", ANY_T], "none", {Effect.WRITES_MEMORY}, may_throw=False))
     register_intrinsic(IntrinsicSpec("core_array_append", ["array", ANY_T], "array", {Effect.PURE, Effect.ALLOCATES}, may_throw=False))
+    register_intrinsic(IntrinsicSpec("core_array_push", ["array", ANY_T], "none", {Effect.WRITES_MEMORY}, may_throw=False))
     register_intrinsic(IntrinsicSpec("core_array_pop", ["array"], ANY_T, {Effect.PURE}, may_throw=True))
+    register_intrinsic(IntrinsicSpec("core_array_slice", ["array", "int", "int"], "array", {Effect.PURE, Effect.ALLOCATES}, may_throw=False))
     register_intrinsic(
         IntrinsicSpec("io_print", [ANY_T], "none", {Effect.IO, Effect.WRITES_MEMORY}, may_throw=True, deterministic=True)
     )
@@ -1560,6 +1601,10 @@ def _register_defaults() -> None:
     register_intrinsic_handler("str_endswith", _str_endswith)
     register_intrinsic_handler("str_contains", _str_contains)
     register_intrinsic_handler("str_find", _str_find)
+    register_intrinsic_handler("str_rfind", _str_rfind)
+    register_intrinsic_handler("str_length", _str_length)
+    register_intrinsic_handler("str_ord", lambda args, **_: ord(str(args[0])))
+    register_intrinsic_handler("str_chr", lambda args, **_: chr(int(args[0])))
     register_intrinsic_handler("str_char_at", _str_char_at)
     register_intrinsic_handler("str_slice", _str_slice)
     register_intrinsic_handler("str_to_chars", _str_to_chars)
@@ -1575,6 +1620,9 @@ def _register_defaults() -> None:
     register_intrinsic_handler("core_map_keys", _core_map_keys)
     register_intrinsic_handler("core_map_values", _core_map_values)
     register_intrinsic_handler("core_map_has_key", _core_map_has_key)
+    register_intrinsic_handler("core_map_delete", _core_map_delete)
+    register_intrinsic_handler("core_array_push", _core_array_push)
+    register_intrinsic_handler("core_array_slice", _core_array_slice)
     register_intrinsic_handler("core_array_append", _core_array_append)
     register_intrinsic_handler("core_array_pop", _core_array_pop)
     register_intrinsic_handler("io_print", _io_print)

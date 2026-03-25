@@ -40,6 +40,28 @@ app = typer.Typer(help="ManV language toolchain")
 auth_app = typer.Typer(help="Registry authentication")
 app.add_typer(auth_app, name="auth")
 
+# Commands that don't need stdlib (meta-operations)
+_STDLIB_EXEMPT_COMMANDS = frozenset({"setup", "auth", "version", "add", "install"})
+
+
+@app.callback(invoke_without_command=True)
+def _check_stdlib(ctx: typer.Context) -> None:
+    """Warn once per invocation if the ManV stdlib is not installed."""
+    if ctx.invoked_subcommand in _STDLIB_EXEMPT_COMMANDS:
+        return
+    try:
+        from .packages import is_stdlib_installed, STDLIB_GIT_URL, STDLIB_PACKAGE_NAME
+        if not is_stdlib_installed():
+            typer.echo(
+                f"warning: stdlib not installed. Run:\n"
+                f"  manv setup\n"
+                f"or manually:\n"
+                f"  manv add {STDLIB_GIT_URL} --branch main",
+                err=True,
+            )
+    except Exception:
+        pass
+
 
 def _fail(err: ManvError) -> None:
     typer.echo(err.render(), err=True)
@@ -101,37 +123,23 @@ def version() -> None:
 @app.command()
 def init(
     path: Annotated[str, typer.Argument(help="project directory")] = ".",
-    std: Annotated[bool, typer.Option("--std", help="initialize the standard-library project scaffold")] = False,
     name: Annotated[str | None, typer.Option("--name", help="project.name for project.toml")] = None,
     description: Annotated[str | None, typer.Option("--description", help="project description")] = None,
-    author: Annotated[str | None, typer.Option("--author", help="author display name")]= None,
-    requires_python: Annotated[str | None, typer.Option("--python", help="project.requires-python constraint")] = None,
+    author: Annotated[str | None, typer.Option("--author", help="author display name")] = None,
     interactive: Annotated[bool, typer.Option("--interactive", help="prompt for project metadata (Poetry-style init flow)")] = False,
 ) -> None:
     if interactive:
         base_name = Path(path).resolve().name or "manv-project"
-        if std:
-            name = "std"
-        else:
-            name = typer.prompt("Project name", default=(name or base_name)).strip()
-        description = typer.prompt(
-            "Description",
-            default=(description or ("ManV standard library" if std else "")),
-        ).strip()
+        name = typer.prompt("Project name", default=(name or base_name)).strip()
+        description = typer.prompt("Description", default=(description or "")).strip()
         author = typer.prompt("Author", default=(author or "ManV Developer")).strip()
-        requires_python = typer.prompt("Requires Python", default=(requires_python or ">=3.12")).strip()
-
-    if std:
-        name = "std"
 
     try:
         ctx = init_project(
             path,
-            std=std,
             name=name,
             description=description,
             author=author,
-            requires_python=requires_python,
         )
     except ManvError as err:
         _fail(err)
@@ -139,12 +147,8 @@ def init(
     _kv("project", ctx.root)
     _kv("config", ctx.root / "project.toml")
     _kv("entry", ctx.entry)
-    if std:
-        _kv("mode", "std")
-        _kv("tests", ctx.root / "tests" / "e2e" / "std_smoke" / "case.toml")
-    else:
-        _kv("mode", "app")
-        _kv("tests", ctx.root / "tests" / "e2e" / "hello_world" / "case.toml")
+    _kv("mode", "app")
+    _kv("tests", ctx.root / "tests" / "e2e" / "hello_world" / "case.toml")
     typer.echo("status: initialized")
 
 
@@ -208,7 +212,7 @@ def compile_cmd(
                 "abi,host_stub_abi,asm,host_stub,source_map,gpu_report,backend_bundle,ptx,cuda_cpp,hip,spirv,wgsl,hlsl,llvm_ir,native_obj,native_exe"
             )
         ),
-    ] = "ast,hir,hlir,graph,kernel,abi,llvm_ir,native_exe",
+    ] = "native_exe",
     out: Annotated[str | None, typer.Option(help="output directory override")] = None,
     host: Annotated[str, typer.Option("--host", help="host backend: auto,llvm,interp")] = "auto",
     device_backend: Annotated[
@@ -438,6 +442,18 @@ def add(
             if branch:
                 _kv("branch", branch)
             _kv("manifest", manifest_path)
+
+            try:
+                from .packages import install_dependency
+                version_key = install_dependency(
+                    dep_name,
+                    payload,
+                    registry_url=choose_registry_url(registry),
+                    token=choose_registry_token(),
+                )
+                _kv("installed", version_key)
+            except Exception as exc:
+                typer.echo(f"  warning: install failed: {exc}", err=True)
             return
 
         dep_name, version_from_spec = parse_registry_spec(spec)
@@ -463,10 +479,95 @@ def add(
         _kv("registry", registry_url)
         _kv("version", resolved_version)
         _kv("manifest", manifest_path)
+
+        try:
+            from .packages import install_dependency
+            version_key = install_dependency(
+                dep_name,
+                payload,
+                registry_url=registry_url,
+                token=token,
+            )
+            _kv("installed", version_key)
+        except Exception as exc:
+            typer.echo(f"  warning: install failed: {exc}", err=True)
     except (ManvError, ValueError) as err:
         if isinstance(err, ManvError):
             _fail(err)
         _fail(ManvError(diag("E8203", str(err), str(target), 1, 1)))
+
+
+@app.command()
+def install(
+    target: Annotated[str, typer.Argument(help="project directory")] = ".",
+    registry: Annotated[str | None, typer.Option(help="registry base URL override")] = None,
+) -> None:
+    """Install all dependencies declared in project.toml into the global cache."""
+    import tomllib as _tomllib
+    from .packages import install_dependency
+
+    try:
+        ctx = discover_target(target)
+        manifest = ctx.config_path or (ctx.root / "project.toml")
+        if not manifest.exists():
+            typer.echo("no project.toml found", err=True)
+            raise typer.Exit(code=1)
+
+        data = _tomllib.loads(manifest.read_text(encoding="utf-8"))
+        tool_manv = data.get("tool", {}).get("manv", {})
+        deps: dict = tool_manv.get("dependencies", data.get("dependencies", {}))  # type: ignore[assignment]
+        if not isinstance(deps, dict) or not deps:
+            typer.echo("no dependencies declared")
+            return
+
+        reg_url = choose_registry_url(registry)
+        token = choose_registry_token()
+
+        _title("Install")
+        for dep_name, dep_entry in deps.items():
+            try:
+                version_key = install_dependency(dep_name, dep_entry, registry_url=reg_url, token=token)
+                _kv(dep_name, f"{version_key} (installed)")
+            except Exception as exc:
+                _kv(dep_name, f"FAILED: {exc}")
+        typer.echo("status: done")
+    except ManvError as err:
+        _fail(err)
+
+
+@app.command()
+def setup() -> None:
+    """Install the ManV stdlib from GitHub (https://github.com/manv-lang/stdlib).
+
+    Run this once after installing ManV.  Equivalent to:
+      manv add https://github.com/manv-lang/stdlib --branch main
+    """
+    from .packages import (
+        STDLIB_GIT_URL,
+        STDLIB_PACKAGE_NAME,
+        install_from_github,
+        is_stdlib_installed,
+    )
+
+    if is_stdlib_installed():
+        typer.echo("stdlib is already installed.")
+        return
+
+    _title("Setup")
+    _kv("stdlib", STDLIB_GIT_URL)
+    typer.echo("downloading stdlib...")
+    try:
+        version_key = install_from_github(
+            STDLIB_PACKAGE_NAME,
+            STDLIB_GIT_URL,
+            "main",
+            ref_kind="branch",
+        )
+        _kv("installed", version_key)
+        typer.echo("status: done")
+    except Exception as exc:
+        typer.echo(f"error: could not install stdlib: {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command()
