@@ -187,6 +187,21 @@ def _stmt_to_hir(stmt: object) -> HIRStatement:
         return HIRStatement(kind="break", attrs={})
     if isinstance(stmt, ast.ContinueStmt):
         return HIRStatement(kind="continue", attrs={})
+    if isinstance(stmt, ast.MatchStmt):
+        return HIRStatement(
+            kind="match",
+            attrs={
+                "subject": _expr_to_hir(stmt.subject),
+                "cases": [
+                    {
+                        "pattern": _expr_to_hir(case.pattern),
+                        "guard": _expr_to_hir(case.guard),
+                        "body": [_stmt_to_hir(s).__dict__ for s in case.body],
+                    }
+                    for case in stmt.cases
+                ],
+            },
+        )
     if isinstance(stmt, ast.UnsupportedStmt):
         return HIRStatement(kind="stub_stmt", attrs={"feature": stmt.feature, "detail": stmt.detail})
     return HIRStatement(kind="unknown", attrs={"node": type(stmt).__name__})

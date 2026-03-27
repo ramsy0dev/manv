@@ -396,6 +396,13 @@ def _emit_instruction(instr: HInstruction, state: _FunctionState, strings: dict[
         return _emit_index(instr, state, out)
     if op == "set_index":
         return _emit_set_index(instr, state, out)
+    if op == "array_len":
+        arr = _operand(str(instr.args[0]), state)
+        temp = state.new_temp()
+        out.append(f"  {temp} = call i64 @manv_rt_array_len(ptr {arr.ref})")
+        if instr.dest:
+            state.values[instr.dest] = LlvmValue("i64", temp)
+        return out
     raise LlvmLoweringError(f"unsupported HLIR instruction for LLVM lowering: {op}")
 
 
@@ -719,6 +726,8 @@ def _infer_instruction_info(
             base.value_type = base.value_type or value.type_name
             return None, None
         return None, "index assignment"
+    if instr.op == "array_len":
+        return _ValueInfo("i64"), None
     if instr.op in {"declare_var", "load_arg", "store_var", "load_var"}:
         return None, None
     return None, f"HLIR instruction '{instr.op}'"

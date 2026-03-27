@@ -667,6 +667,10 @@ class HLIRLowerer:
             state.emit(HInstruction(op="store_var", args=[stmt.name, out], effects=["writes_memory"]), node=stmt)
             return
 
+        if isinstance(stmt, ast.MatchStmt):
+            self._lower_match(state, stmt)
+            return
+
         state.emit(HInstruction(op="unsupported_stmt", attrs={"kind": type(stmt).__name__}, effects=["may_throw"]), node=stmt)
 
     def _lower_let(self, state: _LowerState, stmt: ast.LetStmt) -> None:
@@ -743,7 +747,7 @@ class HLIRLowerer:
         # init/compare/increment blocks while preserving the original source
         # spans on the generated operations.
         if not isinstance(stmt.iterable, ast.RangeExpr):
-            state.emit(HInstruction(op="unsupported_stmt", attrs={"kind": "ForStmt"}, effects=["may_throw"]), node=stmt)
+            self._lower_for_iter(state, stmt)
             return
 
         if stmt.var_name not in state.declared_vars:
@@ -911,6 +915,167 @@ class HLIRLowerer:
 
                 state.set_block(finally_continue_label)
                 state.terminate("br", [exit_label], node=stmt)
+
+        state.set_block(exit_label)
+
+    def _lower_match(self, state: _LowerState, stmt: ast.MatchStmt) -> None:
+        # Canonical match lowering:
+        # - Evaluate subject once into a temp.
+        # - For each case in source order, emit a check block and an optional
+        #   guard block, then the body block.  All bodies branch to match_exit.
+        # - Pattern kinds:
+        #     wildcard (_)      — unconditional fall-through to guard/body
+        #     literal           — equality binop comparison
+        #     bound identifier  — load named variable, equality comparison
+        #     binding identifier — declare_var + store_var, then guard/body
+        #     other expression  — evaluate expression, equality comparison
+        subject_temp = self._lower_expr(state, stmt.subject)
+        exit_label = state.new_label("match_exit")
+
+        if not stmt.cases:
+            state.terminate("br", [exit_label], node=stmt)
+            state.set_block(exit_label)
+            return
+
+        check_label = state.new_label("match_case_0")
+        state.terminate("br", [check_label], node=stmt)
+
+        for index, case in enumerate(stmt.cases):
+            is_last = index == len(stmt.cases) - 1
+            next_check_label = (
+                state.new_label("match_no_match") if is_last
+                else state.new_label(f"match_case_{index + 1}")
+            )
+            body_label = state.new_label(f"match_body_{index}")
+            guard_label = state.new_label(f"match_guard_{index}") if case.guard else None
+            pass_target = guard_label if guard_label else body_label
+
+            state.set_block(check_label)
+            pattern = case.pattern
+            wildcard = isinstance(pattern, ast.IdentifierExpr) and pattern.name == "_"
+            is_binding = (
+                isinstance(pattern, ast.IdentifierExpr)
+                and not wildcard
+                and pattern.name not in state.declared_vars
+            )
+            is_bound_compare = (
+                isinstance(pattern, ast.IdentifierExpr)
+                and not wildcard
+                and pattern.name in state.declared_vars
+            )
+
+            if wildcard:
+                state.terminate("br", [pass_target], node=case)
+            elif isinstance(pattern, ast.LiteralExpr) or is_bound_compare:
+                if isinstance(pattern, ast.IdentifierExpr) and is_bound_compare:
+                    loaded = state.new_temp()
+                    state.emit(HInstruction(op="load_var", dest=loaded, args=[pattern.name], effects=["reads_memory"]), node=case)
+                    pat_val = loaded
+                else:
+                    pat_val = self._lower_expr(state, pattern)
+                cmp = state.new_temp()
+                state.emit(HInstruction(op="binop", dest=cmp, args=[subject_temp, pat_val], attrs={"op": "=="}), node=case)
+                state.terminate("cbr", [cmp, pass_target, next_check_label], node=case)
+            elif is_binding:
+                state.emit(
+                    HInstruction(op="declare_var", attrs={"name": pattern.name, "type": "dynamic"}, effects=["writes_memory"]),
+                    node=case,
+                )
+                state.declared_vars.add(pattern.name)
+                state.emit(HInstruction(op="store_var", args=[pattern.name, subject_temp], effects=["writes_memory"]), node=case)
+                state.terminate("br", [pass_target], node=case)
+            else:
+                # General expression pattern: evaluate and compare equality.
+                pat_val = self._lower_expr(state, pattern)
+                cmp = state.new_temp()
+                state.emit(HInstruction(op="binop", dest=cmp, args=[subject_temp, pat_val], attrs={"op": "=="}), node=case)
+                state.terminate("cbr", [cmp, pass_target, next_check_label], node=case)
+
+            if guard_label:
+                state.set_block(guard_label)
+                guard_val = self._lower_expr(state, case.guard)
+                state.terminate("cbr", [guard_val, body_label, next_check_label], node=case)
+
+            state.set_block(body_label)
+            self._lower_statements(state, case.body)
+            if not state.has_terminator():
+                state.terminate("br", [exit_label], node=case)
+
+            check_label = next_check_label  # advance for next iteration
+
+        # No case matched — fall through to exit.
+        state.set_block(check_label)
+        state.terminate("br", [exit_label], node=stmt)
+
+        state.set_block(exit_label)
+
+    def _lower_for_iter(self, state: _LowerState, stmt: ast.ForStmt) -> None:
+        # Desugar `for x in arr:` into an explicit index loop.
+        # Emits array_len to get the element count, then loops 0..len,
+        # loading each element via get_index before executing the body.
+        # Non-array iterables (maps, custom objects) are not yet supported.
+        arr_temp = self._lower_expr(state, stmt.iterable)
+
+        len_temp = state.new_temp()
+        state.emit(
+            HInstruction(op="array_len", dest=len_temp, args=[arr_temp], effects=["reads_memory"]),
+            node=stmt,
+        )
+
+        # Internal index variable — unique name to avoid shadowing user vars.
+        idx_name = f"__for_idx_{state.new_label('idx')}"
+        state.emit(
+            HInstruction(op="declare_var", attrs={"name": idx_name, "type": "i64"}, effects=["writes_memory"]),
+            node=stmt,
+        )
+        state.declared_vars.add(idx_name)
+        zero = state.new_temp()
+        state.emit(HInstruction(op="const", dest=zero, type_name="i64", attrs={"value": 0}), node=stmt)
+        state.emit(HInstruction(op="store_var", args=[idx_name, zero], effects=["writes_memory"]), node=stmt)
+
+        # User-visible iteration variable.
+        if stmt.var_name not in state.declared_vars:
+            state.emit(
+                HInstruction(op="declare_var", attrs={"name": stmt.var_name, "type": "dynamic"}, effects=["writes_memory"]),
+                node=stmt,
+            )
+            state.declared_vars.add(stmt.var_name)
+
+        cond_label = state.new_label("foriter_cond")
+        body_label = state.new_label("foriter_body")
+        incr_label = state.new_label("foriter_incr")
+        exit_label = state.new_label("foriter_exit")
+
+        state.terminate("br", [cond_label], node=stmt)
+
+        state.set_block(cond_label)
+        cur_idx = state.new_temp()
+        state.emit(HInstruction(op="load_var", dest=cur_idx, args=[idx_name], effects=["reads_memory"]), node=stmt)
+        cmp = state.new_temp()
+        state.emit(HInstruction(op="binop", dest=cmp, args=[cur_idx, len_temp], attrs={"op": "<"}), node=stmt)
+        state.terminate("cbr", [cmp, body_label, exit_label], node=stmt)
+
+        state.set_block(body_label)
+        cur_idx2 = state.new_temp()
+        state.emit(HInstruction(op="load_var", dest=cur_idx2, args=[idx_name], effects=["reads_memory"]), node=stmt)
+        elem = state.new_temp()
+        state.emit(HInstruction(op="index", dest=elem, args=[arr_temp, cur_idx2], effects=["reads_memory", "may_throw"]), node=stmt)
+        state.emit(HInstruction(op="store_var", args=[stmt.var_name, elem], effects=["writes_memory"]), node=stmt)
+        state.loop_targets.append((exit_label, incr_label))
+        self._lower_statements(state, stmt.body)
+        state.loop_targets.pop()
+        if not state.has_terminator():
+            state.terminate("br", [incr_label], node=stmt)
+
+        state.set_block(incr_label)
+        cur_idx3 = state.new_temp()
+        state.emit(HInstruction(op="load_var", dest=cur_idx3, args=[idx_name], effects=["reads_memory"]), node=stmt)
+        one = state.new_temp()
+        state.emit(HInstruction(op="const", dest=one, type_name="i64", attrs={"value": 1}), node=stmt)
+        next_idx = state.new_temp()
+        state.emit(HInstruction(op="binop", dest=next_idx, args=[cur_idx3, one], attrs={"op": "+"}), node=stmt)
+        state.emit(HInstruction(op="store_var", args=[idx_name, next_idx], effects=["writes_memory"]), node=stmt)
+        state.terminate("br", [cond_label], node=stmt)
 
         state.set_block(exit_label)
 
