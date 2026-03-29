@@ -1,0 +1,13 @@
+# ---
+# 01_hello_world.mv
+#
+# The minimal runnable ManV program.
+# Demonstrates:
+#   - fn main() as the program entry point
+#   - print() for output
+#   - Returning an integer exit code
+# ---
+
+fn main() -> int:
+    print("Hello, World!")
+    return 0  # 0 means success

@@ -28,7 +28,29 @@ DTYPE_TO_CUDA = {
     "i64": "long long",
     "f32": "float",
     "float": "float",
+    "f64": "double",
+    "double": "double",
     "bool": "bool",
+}
+
+# Dispatch table: ManV intrinsic name → (float_fn, double_fn, arity)
+# clamp is handled specially (arity=3, nested calls)
+_CUDA_MATH_MAP: dict[str, tuple[str, str, int]] = {
+    "sqrt":  ("sqrtf",  "sqrt",  1),
+    "sin":   ("sinf",   "sin",   1),
+    "cos":   ("cosf",   "cos",   1),
+    "tan":   ("tanf",   "tan",   1),
+    "exp":   ("expf",   "exp",   1),
+    "log":   ("logf",   "log",   1),
+    "log2":  ("log2f",  "log2",  1),
+    "pow":   ("powf",   "pow",   2),
+    "floor": ("floorf", "floor", 1),
+    "ceil":  ("ceilf",  "ceil",  1),
+    "abs":   ("fabsf",  "fabs",  1),
+    "fabs":  ("fabsf",  "fabs",  1),
+    "min":   ("fminf",  "fmin",  2),
+    "max":   ("fmaxf",  "fmax",  2),
+    "clamp": ("fminf",  "fmin",  3),
 }
 
 
@@ -43,6 +65,7 @@ def emit_cuda_cpp(kernel_ir: KIRModule | dict[str, Any], *, arch: str = "sm_80",
         f"// kir_hash: {module.canonical_hash()}",
         f"// arch: {arch}",
         "#include <stdint.h>",
+        "#include <math.h>",  # included unconditionally so intrinsic stubs remain compilable
         "",
     ]
 
@@ -168,7 +191,7 @@ def _emit_reduction_kernel(
         f"    // launch_model: {json.dumps(launch, sort_keys=True)}",
         f"    // reduction_kind: {reduction_kind}",
         f"    // reduction_op: {reduction_op}",
-        f"    __shared__ {value_dtype} shared_acc[256];",
+        f"    __shared__ {value_dtype} shared_acc[{max(1, int(launch.get('block_x', 256)))}];",
         "    int tid = (int)threadIdx.x;",
         "    int idx = (int)(blockIdx.x * blockDim.x + threadIdx.x);",
         "    int stride = (int)(blockDim.x * gridDim.x);",
@@ -262,6 +285,53 @@ def _emit_ops(ops: list[dict[str, Any]]) -> tuple[list[str], dict[str, str]]:
             else:
                 # covers "-" and any future single-character unary ops
                 value_exprs[outputs[0]] = f"({token}{operand})"
+            continue
+
+        if opcode == "cast" and outputs:
+            to_dtype = str(attrs.get("to_dtype", "f32"))
+            cuda_type = DTYPE_TO_CUDA.get(to_dtype, "int")
+            operand = value_exprs.get(inputs[0], inputs[0] if inputs else "0")
+            value_exprs[outputs[0]] = f"(({cuda_type})({operand}))"
+            continue
+
+        if opcode == "select" and outputs:
+            cond = value_exprs.get(inputs[0], inputs[0] if inputs else "0")
+            tval = value_exprs.get(inputs[1], inputs[1] if len(inputs) > 1 else "0")
+            fval = value_exprs.get(inputs[2], inputs[2] if len(inputs) > 2 else "0")
+            value_exprs[outputs[0]] = f"(({cond}) ? ({tval}) : ({fval}))"
+            continue
+
+        if opcode == "intrinsic_call" and outputs:
+            name = str(attrs.get("name", ""))
+            dtype_str = str(op.get("dtype", "f32"))
+            is_double = dtype_str in {"f64", "double"}
+            is_int = dtype_str in {"i32", "int", "i64", "long long"}
+            entry = _CUDA_MATH_MAP.get(name)
+            if entry is None:
+                lines.append(f"// unsupported intrinsic: {name}")
+                value_exprs[outputs[0]] = "0 /* unsupported intrinsic */"
+            elif name == "clamp":
+                v = value_exprs.get(inputs[0], inputs[0] if inputs else "0")
+                lo = value_exprs.get(inputs[1], inputs[1] if len(inputs) > 1 else "0")
+                hi = value_exprs.get(inputs[2], inputs[2] if len(inputs) > 2 else "0")
+                if is_int:
+                    value_exprs[outputs[0]] = f"min(max({v}, {lo}), {hi})"
+                elif is_double:
+                    value_exprs[outputs[0]] = f"fmin(fmax({v}, {lo}), {hi})"
+                else:
+                    value_exprs[outputs[0]] = f"fminf(fmaxf({v}, {lo}), {hi})"
+            else:
+                float_fn, double_fn, arity = entry
+                if is_int and name in {"abs", "fabs"}:
+                    fn = "abs"
+                elif is_int and name in {"min", "max"}:
+                    fn = name
+                elif is_double:
+                    fn = double_fn
+                else:
+                    fn = float_fn
+                args = [value_exprs.get(inputs[i], inputs[i] if i < len(inputs) else "0") for i in range(arity)]
+                value_exprs[outputs[0]] = f"{fn}({', '.join(args)})"
             continue
 
         if opcode == "kernel_assert":

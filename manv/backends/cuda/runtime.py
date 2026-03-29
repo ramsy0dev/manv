@@ -677,6 +677,10 @@ def _dtype_ctype(dtype: str) -> type[Any]:
     normalized = str(dtype).lower()
     if normalized in {"f32", "float"}:
         return ctypes.c_float
+    if normalized in {"f64", "double"}:
+        return ctypes.c_double
+    if normalized in {"i32", "int"}:
+        return ctypes.c_int
     if normalized in {"i64", "int64"}:
         return ctypes.c_longlong
     if normalized in {"bool"}:
@@ -716,7 +720,7 @@ def _unpack_host_values(payload: bytes, dtype: str) -> list[Any]:
 
 def _coerce_scalar(value: Any, dtype: str) -> Any:
     normalized = str(dtype).lower()
-    if normalized in {"f32", "float"}:
+    if normalized in {"f32", "float", "f64", "double"}:
         return float(value)
     if normalized in {"bool"}:
         return bool(value)

@@ -24,6 +24,7 @@ import subprocess
 from typing import Iterable
 
 from .diagnostics import ManvError, diag
+from .hlir import HModule
 from .targets import TargetSpec
 
 
@@ -42,6 +43,23 @@ def detect_llvm_toolchain() -> LlvmToolchain | None:
     return LlvmToolchain(clang=clang, version_text=version_text)
 
 
+def _extern_link_flags(module: HModule) -> list[str]:
+    """Collect ``-l`` flags for libraries referenced by extern declarations."""
+    import os
+    flags: list[str] = []
+    seen: set[str] = set()
+    for ext in module.extern_fns:
+        lib = ext.lib
+        if lib in seen:
+            continue
+        seen.add(lib)
+        if os.path.isabs(lib):
+            flags.append(lib)
+        else:
+            flags.append(f"-l{lib}")
+    return flags
+
+
 def build_llvm_artifacts(
     *,
     llvm_ir: str,
@@ -55,6 +73,7 @@ def build_llvm_artifacts(
     link_libs: tuple[str, ...] = (),
     link_paths: tuple[str, ...] = (),
     link_args: tuple[str, ...] = (),
+    hlir_module: HModule | None = None,
 ) -> dict[str, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     paths: dict[str, Path] = {}
@@ -106,6 +125,8 @@ def build_llvm_artifacts(
             command.extend(["-L", path])
         for lib in link_libs:
             command.append(f"-l{lib}")
+        if hlir_module is not None:
+            command.extend(_extern_link_flags(hlir_module))
         command.extend(link_args)
         _run(command, cwd=out_dir, err_code="E5205", err_prefix="llvm link failed")
         paths["native_exe"] = exe_path
@@ -586,6 +607,16 @@ def _runtime_support_c() -> str:
         "void* manv_rt_gpu_required_ptr(const char* callee) {\n"
         "    manv_rt_gpu_required_abort(callee);\n"
         "    return NULL;\n"
+        "}\n\n"
+        "/* FFI helpers: ManV strings are already null-terminated C strings in\n"
+        "   the compiled backend, so these are identity pass-throughs today.\n"
+        "   They exist as named symbols so future versions can add encoding,\n"
+        "   lifetime, or ABI conversions without changing call sites. */\n"
+        "void* manv_rt_str_to_cstr(void* s) {\n"
+        "    return s;\n"
+        "}\n\n"
+        "void* manv_rt_cstr_to_str(void* s) {\n"
+        "    return s;\n"
         "}\n"
     )
 

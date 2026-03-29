@@ -1,0 +1,71 @@
+# ---
+# 03_functions.mv
+#
+# Demonstrates:
+#   - Functions with and without return types
+#   - Multiple parameters
+#   - Recursive functions (factorial, fibonacci)
+#   - Functions as first-class values passed to other functions
+# ---
+
+# --- Functions without a return type ---
+fn greet(name: str):
+    print("Hello, " + name + "!")
+
+# --- Functions with a return type ---
+fn add(a: int, b: int) -> int:
+    return a + b
+
+fn square(x: float) -> float:
+    return x * x
+
+# --- Recursive: factorial ---
+fn factorial(n: int) -> int:
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)  # recursive call
+
+# --- Recursive: fibonacci ---
+fn fibonacci(n: int) -> int:
+    if n <= 1:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)  # two recursive calls
+
+# --- Higher-order function: accepts a function as a parameter ---
+fn apply(fn_val, x: int) -> int:
+    return fn_val(x)  # call the passed-in function
+
+# --- Function that returns a result based on two functions ---
+fn apply_twice(fn_val, x: int) -> int:
+    return fn_val(fn_val(x))  # apply the function twice
+
+fn double(x: int) -> int:
+    return x * 2
+
+fn increment(x: int) -> int:
+    return x + 1
+
+fn main() -> int:
+
+    # --- Basic calls ---
+    greet("World")
+    int sum = add(3, 7)
+    print(sum)           # 10
+    print(square(4.0))   # 16.0
+
+    # --- Recursive calls ---
+    print(factorial(6))    # 720
+    print(fibonacci(10))   # 55
+
+    # --- Passing functions as values ---
+    int result = apply(double, 5)    # double(5) = 10
+    print(result)
+
+    int result2 = apply(increment, 99)  # increment(99) = 100
+    print(result2)
+
+    # --- Apply a function twice ---
+    print(apply_twice(double, 3))      # double(double(3)) = 12
+    print(apply_twice(increment, 0))   # increment(increment(0)) = 2
+
+    return 0

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .hlir import HBasicBlock, HFunction, HInstruction, HModule, HTerminator
+from .hlir import HBasicBlock, HExternDecl, HFunction, HInstruction, HModule, HTerminator
 from .llvm_ir import LlvmValue, escape_c_string, llvm_type, llvm_zero, sanitize_symbol
 from .targets import TargetSpec
 
@@ -97,6 +97,39 @@ class _FunctionState:
     def new_temp(self) -> str:
         self.next_temp_id += 1
         return f"%v{self.next_temp_id}"
+
+
+def _llvm_extern_type(t: str | None) -> str:
+    """Map a ManV type name to its LLVM extern-ABI type."""
+    if t in {None, "void"}:
+        return "void"
+    if t in {"int", "i32"}:
+        return "i32"
+    if t == "i64":
+        return "i64"
+    if t in {"float", "f32"}:
+        return "float"
+    if t == "f64":
+        return "double"
+    if t == "bool":
+        return "i1"
+    if t in {"ptr", "str"}:
+        return "ptr"
+    return "i64"
+
+
+def _emit_extern_declarations(module: HModule) -> list[str]:
+    """Emit LLVM ``declare`` lines for all extern C functions in the module."""
+    lines: list[str] = []
+    for ext in module.extern_fns:
+        ret = _llvm_extern_type(ext.return_type)
+        fixed = ", ".join(_llvm_extern_type(t) for t in ext.param_types)
+        if ext.varargs:
+            params = (fixed + ", ...") if fixed else "..."
+        else:
+            params = fixed
+        lines.append(f"declare {ret} @{ext.c_name}({params})")
+    return lines
 
 
 def emit_llvm_module(module: HModule, target: TargetSpec, *, source_name: str) -> str:
@@ -175,9 +208,16 @@ def emit_llvm_module(module: HModule, target: TargetSpec, *, source_name: str) -
             "declare double @manv_rt_gpu_required_f64(ptr)",
             "declare float @manv_rt_gpu_required_f32(ptr)",
             "declare ptr @manv_rt_gpu_required_ptr(ptr)",
+            "declare ptr @manv_rt_str_to_cstr(ptr)",
+            "declare ptr @manv_rt_cstr_to_str(ptr)",
             "",
         ]
     )
+
+    extern_decls = _emit_extern_declarations(module)
+    if extern_decls:
+        lines.extend(extern_decls)
+        lines.append("")
 
     for text, symbol in sorted(strings.items(), key=lambda item: item[1]):
         escaped = escape_c_string(text)
@@ -747,7 +787,50 @@ def _unsupported_terminator_reason(term: HTerminator) -> str | None:
     return f"terminator '{term.op}'"
 
 
+def _emit_extern_call(instr: HInstruction, state: _FunctionState, out: list[str]) -> list[str]:
+    """Emit an LLVM ``call`` to an extern C function."""
+    attrs = instr.attrs
+    c_name = str(attrs["extern_c_name"])
+    param_types: list[str | None] = list(attrs.get("extern_param_types") or [])
+    ret_type = _llvm_extern_type(attrs.get("extern_return_type"))
+    varargs = bool(attrs.get("extern_varargs", False))
+
+    c_args: list[str] = []
+    for i, arg_id in enumerate(instr.args):
+        op = _operand(str(arg_id), state)
+        pt = param_types[i] if i < len(param_types) else None
+        if pt == "str":
+            tmp = state.new_temp()
+            out.append(f"  {tmp} = call ptr @manv_rt_str_to_cstr(ptr {op.ref})")
+            c_args.append(f"ptr {tmp}")
+        else:
+            lt = _llvm_extern_type(pt)
+            coerced = _coerce_value(op, lt, state, out)
+            c_args.append(f"{lt} {coerced.ref}")
+
+    arg_text = ", ".join(c_args)
+    if ret_type == "void":
+        out.append(f"  call void @{c_name}({arg_text})")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("i64", "0", literal_value=0)
+    else:
+        tmp = state.new_temp()
+        if varargs and param_types:
+            fixed_sig = ", ".join(_llvm_extern_type(t) for t in param_types)
+            sig = f"{ret_type} ({fixed_sig}, ...)"
+            out.append(f"  {tmp} = call {sig} @{c_name}({arg_text})")
+        else:
+            out.append(f"  {tmp} = call {ret_type} @{c_name}({arg_text})")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue(ret_type, tmp)
+    return out
+
+
 def _emit_call(instr: HInstruction, state: _FunctionState, out: list[str]) -> list[str]:
+    # Extern C call — annotated by HLIR lowering.
+    if instr.attrs.get("extern"):
+        return _emit_extern_call(instr, state, out)
+
     callee = str(instr.attrs.get("callee", ""))
     if callee == "print":
         value = _operand(str(instr.args[0]), state)
@@ -854,6 +937,47 @@ def _emit_intrinsic_call(instr: HInstruction, state: _FunctionState, out: list[s
             out.append(f"  {temp} = call ptr @manv_rt_syscall_invoke_i64(i64 {numeric.ref})")
         if instr.dest is not None:
             state.values[instr.dest] = LlvmValue("ptr", temp, container_kind="syscall_result")
+        return out
+    if name == "ptr_null":
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("ptr", "null")
+        return out
+    if name == "ptr_is_null":
+        if len(instr.args) != 1:
+            raise LlvmLoweringError("ptr_is_null expects one argument")
+        p = _operand(str(instr.args[0]), state)
+        tmp = state.new_temp()
+        out.append(f"  {tmp} = icmp eq ptr {p.ref}, null")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("i1", tmp)
+        return out
+    if name == "c_str":
+        if len(instr.args) != 1:
+            raise LlvmLoweringError("c_str expects one argument")
+        s = _operand(str(instr.args[0]), state)
+        tmp = state.new_temp()
+        out.append(f"  {tmp} = call ptr @manv_rt_str_to_cstr(ptr {s.ref})")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("ptr", tmp)
+        return out
+    if name == "ptr_to_str":
+        if len(instr.args) != 1:
+            raise LlvmLoweringError("ptr_to_str expects one argument")
+        p = _operand(str(instr.args[0]), state)
+        tmp = state.new_temp()
+        out.append(f"  {tmp} = call ptr @manv_rt_cstr_to_str(ptr {p.ref})")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("ptr", tmp)
+        return out
+    if name == "ptr_add":
+        if len(instr.args) != 2:
+            raise LlvmLoweringError("ptr_add expects two arguments")
+        p = _operand(str(instr.args[0]), state)
+        n = _coerce_value(_operand(str(instr.args[1]), state), "i64", state, out)
+        tmp = state.new_temp()
+        out.append(f"  {tmp} = getelementptr i8, ptr {p.ref}, i64 {n.ref}")
+        if instr.dest is not None:
+            state.values[instr.dest] = LlvmValue("ptr", tmp)
         return out
     raise LlvmLoweringError(f"unsupported intrinsic call for LLVM lowering: {name}")
 

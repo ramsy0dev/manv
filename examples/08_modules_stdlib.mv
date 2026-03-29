@@ -1,0 +1,75 @@
+# ---
+# 08_modules_stdlib.mv
+#
+# Demonstrates two ways to use the ManV standard library:
+#
+# 1. The built-in `std` namespace — available everywhere, no setup needed.
+#    Access pattern: std.<subsystem>.<function>(args)
+#    Subsystems: json, rand, path, time, os, fs, http, ...
+#
+# 2. The `include` statement — loads a pure-ManV stdlib module file.
+#    Requires MANV_PATH to point to the stdlib/src directory, e.g.:
+#      export MANV_PATH=/path/to/manv-lang/stdlib/src
+#    Then: include math  →  math.sqrt(x), math.pi, math.sin(x), ...
+#
+# This file exercises both approaches.
+# ---
+
+# --- include: loads stdlib modules when MANV_PATH is set ---
+# Uncomment the lines below and set MANV_PATH to run the include section.
+#
+# include math
+# include random
+
+fn main() -> int:
+
+    # --- std.json: parse and serialize JSON without any include ---
+    str raw = '{"language": "ManV", "version": 1}'
+    map obj = std.json.parse(raw)         # parse JSON string into a map
+    print(obj["language"])                # "ManV"
+    print(obj["version"])                 # 1
+
+    map data = {"x": 10, "y": 20}
+    str serialized = std.json.stringify(data)
+    print(serialized)                     # JSON-encoded string
+
+    # --- std.rand: seed the RNG (rand_int needs `include random`) ---
+    std.rand.seed(42)                     # set deterministic seed
+    print("RNG seeded")
+
+    # --- std.path: file path utilities ---
+    str joined = std.path.join(["home", "user", "notes.txt"])
+    print(joined)                         # "home/user/notes.txt"
+
+    str base = std.path.basename(joined)
+    str dir  = std.path.dirname(joined)
+    print(base)   # "notes.txt"
+    print(dir)    # "home/user"
+
+    # --- std.time: get the current wall-clock time ---
+    int now_ms = std.time.now_ms()
+    print("time (ms): " + str(now_ms))
+
+    # ---
+    # The section below requires MANV_PATH to be set.
+    # Uncomment after setting: export MANV_PATH=/path/to/stdlib/src
+    #
+    # include math
+    # include random
+    #
+    # fn run_with_stdlib() -> int:
+    #     # math module: constants and transcendental functions
+    #     print(math.pi)                       # 3.14159...
+    #     let angle = math.pi / 4.0            # 45 degrees in radians
+    #     print(math.sin(angle))               # ~0.7071
+    #     print(math.cos(angle))               # ~0.7071
+    #     print(math.sqrt(144.0))              # 12.0
+    #     print(math.pow(2.0, 10.0))          # 1024.0
+    #
+    #     # random module: seeded random integers
+    #     random.seed(99)
+    #     print(random.rand_int(1, 100))       # reproducible integer
+    #     return 0
+    # ---
+
+    return 0

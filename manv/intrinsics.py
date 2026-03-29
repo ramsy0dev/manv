@@ -99,6 +99,11 @@ BUILTIN_ALIASES: dict[str, str] = {
     "map_has_key": "core_map_has_key",
     "array_append": "core_array_append",
     "array_pop": "core_array_pop",
+    "ptr_null": "ptr_null",
+    "ptr_is_null": "ptr_is_null",
+    "c_str": "c_str",
+    "ptr_to_str": "ptr_to_str",
+    "ptr_add": "ptr_add",
 }
 
 
@@ -1405,6 +1410,48 @@ def _gpu_dispatch(args: list[Any], **_: Any) -> dict[str, Any]:
     return result.to_dict()
 
 
+def _ptr_null(args: list[Any], **_: Any) -> int:
+    """Return a null pointer value (0)."""
+    return 0
+
+
+def _ptr_is_null(args: list[Any], **_: Any) -> bool:
+    """Return True if the pointer value is null (0 or None)."""
+    _ensure_arity("ptr_is_null", args, min_n=1, max_n=1)
+    v = args[0]
+    return v == 0 or v is None
+
+
+def _c_str(args: list[Any], **_: Any) -> bytes:
+    """Convert a ManV str to a C-compatible bytes value (UTF-8 encoded, null-terminated)."""
+    _ensure_arity("c_str", args, min_n=1, max_n=1)
+    v = args[0]
+    if isinstance(v, bytes):
+        return v
+    if isinstance(v, str):
+        return v.encode("utf-8")
+    return str(v).encode("utf-8")
+
+
+def _ptr_to_str(args: list[Any], **_: Any) -> str:
+    """Convert a C pointer / bytes value to a ManV str."""
+    _ensure_arity("ptr_to_str", args, min_n=1, max_n=1)
+    v = args[0]
+    if isinstance(v, bytes):
+        return v.decode("utf-8", errors="replace")
+    if isinstance(v, str):
+        return v
+    return str(v)
+
+
+def _ptr_add(args: list[Any], **_: Any) -> int:
+    """Add an integer offset to a pointer value and return the result."""
+    _ensure_arity("ptr_add", args, min_n=2, max_n=2)
+    base = args[0] or 0
+    offset = int(args[1])
+    return int(base) + offset
+
+
 def _register_defaults() -> None:
     register_intrinsic(
         IntrinsicSpec("core_len", [ANY_T], "int", {Effect.PURE}, may_throw=True, deterministic=True, pure_for_kernel=False)
@@ -1674,6 +1721,17 @@ def _register_defaults() -> None:
     register_intrinsic_handler("gpu_backends", _gpu_backends)
     register_intrinsic_handler("gpu_capabilities", _gpu_capabilities)
     register_intrinsic_handler("gpu_dispatch", _gpu_dispatch)
+    # ptr / C FFI intrinsics
+    register_intrinsic(IntrinsicSpec("ptr_null", [], "int", {Effect.PURE}, may_throw=False, std_only=False))
+    register_intrinsic(IntrinsicSpec("ptr_is_null", [ANY_T], "bool", {Effect.PURE}, may_throw=False, std_only=False))
+    register_intrinsic(IntrinsicSpec("c_str", ["str"], "str", {Effect.ALLOCATES}, may_throw=False, std_only=False))
+    register_intrinsic(IntrinsicSpec("ptr_to_str", [ANY_T], "str", {Effect.READS_MEMORY}, may_throw=False, std_only=False))
+    register_intrinsic(IntrinsicSpec("ptr_add", [ANY_T, "int"], "int", {Effect.PURE}, may_throw=False, std_only=False))
+    register_intrinsic_handler("ptr_null", _ptr_null)
+    register_intrinsic_handler("ptr_is_null", _ptr_is_null)
+    register_intrinsic_handler("c_str", _c_str)
+    register_intrinsic_handler("ptr_to_str", _ptr_to_str)
+    register_intrinsic_handler("ptr_add", _ptr_add)
 
 
 _register_defaults()

@@ -1,0 +1,112 @@
+# ---
+# 07_error_handling.mv
+#
+# Demonstrates:
+#   - try / except to catch typed exceptions
+#   - else clause (runs only when no exception was raised)
+#   - finally clause (always runs, for cleanup)
+#   - raise ExceptionType("message") to throw
+#   - Re-raise with bare raise
+#
+# Notes:
+#   - Nested function declarations (fn inside fn) are not supported;
+#     all helpers must be at the top level.
+#   - Accessing e.message on a caught exception is not yet supported
+#     by the interpreter.  Use `except ExceptionType:` (without `as e`)
+#     when you only need to branch on the type, not the content.
+# ---
+
+fn safe_divide(a: int, b: int) -> int:
+    if b == 0:
+        raise ValueError("cannot divide by zero")   # throw a typed exception
+    return a / b
+
+fn parse_positive(s: str) -> int:
+    int n = int(s)    # may raise ValueError if s is not numeric
+    if n < 0:
+        raise ValueError("expected a positive number")
+    return n
+
+fn risky_lookup(arr: array, idx: int) -> int:
+    if idx < 0 or idx >= len(arr):
+        raise IndexError("index out of range")
+    return arr[idx]
+
+# Top-level helper that intercepts and re-raises
+fn validate_and_run(x: int) -> int:
+    try:
+        int r = safe_divide(100, x)
+        print("result: " + str(r))
+        return r
+    except ValueError:
+        print("intercepted, re-raising...")
+        raise   # re-raise the same exception to the caller
+
+fn main() -> int:
+
+    # --- Basic try / except (branch on exception type) ---
+    try:
+        int result = safe_divide(10, 0)
+        print(result)
+    except ValueError:
+        print("caught ValueError: division by zero")
+
+    # --- No exception path ---
+    try:
+        int result = safe_divide(10, 2)
+        print(result)   # 5 — no exception raised
+    except ValueError:
+        print("this will not print")
+
+    # --- else clause: runs only if no exception was raised ---
+    try:
+        int val = parse_positive("42")
+        print(val)
+    except ValueError:
+        print("parse failed")
+    else:
+        print("parse succeeded without error")   # this runs
+
+    # --- else is skipped when an exception was caught ---
+    try:
+        int val = parse_positive("-5")
+    except ValueError:
+        print("caught negative number")
+    else:
+        print("this will NOT print")   # skipped because exception was caught
+
+    # --- finally clause: always executes ---
+    try:
+        int result = safe_divide(8, 4)
+        print(result)   # 2
+    except ValueError:
+        print("error in division")
+    finally:
+        print("finally block always runs")
+
+    # --- finally with an exception ---
+    try:
+        int result = safe_divide(5, 0)
+    except ValueError:
+        print("caught divide by zero")
+    finally:
+        print("cleanup after divide-by-zero")
+
+    # --- Multiple except clauses ---
+    array arr = [10, 20, 30]
+    try:
+        int item = risky_lookup(arr, 5)
+    except IndexError:
+        print("caught IndexError: bad index")
+    except ValueError:
+        print("caught ValueError")
+    except RuntimeError:
+        print("caught RuntimeError")
+
+    # --- Re-raising an exception with bare raise ---
+    try:
+        validate_and_run(0)
+    except ValueError:
+        print("outer caught the re-raised ValueError")
+
+    return 0

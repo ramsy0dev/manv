@@ -15,7 +15,7 @@ from typing import Any
 
 from . import ast
 from .diagnostics import Span
-from .hlir import HBasicBlock, HFunction, HInstruction, HModule, HTerminator, Provenance, SourceSpan
+from .hlir import HBasicBlock, HExternDecl, HFunction, HInstruction, HModule, HTerminator, Provenance, SourceSpan
 from .intrinsics import intrinsic_effect_names, resolve_call_alias_name, resolve_intrinsic, resolve_intrinsic_name_from_callee
 from .lexer import Lexer
 from .parser import Parser
@@ -45,6 +45,7 @@ class _LowerState:
     gpu_functions: dict[str, GpuDecoratorConfig] = field(default_factory=dict)
     static_methods: set[str] = field(default_factory=set)
     known_callables: set[str] = field(default_factory=set)
+    extern_fns: dict[str, HExternDecl] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self._ensure_block("entry")
@@ -157,6 +158,7 @@ class HLIRLowerer:
         gpu_functions = self._collect_gpu_functions(program)
         static_methods = self._collect_static_methods(program)
         known_callables = self._collect_known_callables(program)
+        extern_fns = self._collect_extern_fns(program)
 
         if program.statements:
             top_fn = self._lower_function_decl(
@@ -167,6 +169,7 @@ class HLIRLowerer:
                 body=program.statements,
                 gpu_functions=gpu_functions,
                 static_methods=static_methods,
+                extern_fns=extern_fns,
             )
             functions.append(top_fn)
 
@@ -183,6 +186,7 @@ class HLIRLowerer:
                         gpu_functions=gpu_functions,
                         static_methods=static_methods,
                         known_callables=known_callables,
+                        extern_fns=extern_fns,
                     )
                 )
                 continue
@@ -200,6 +204,7 @@ class HLIRLowerer:
                             gpu_functions=gpu_functions,
                             static_methods=static_methods,
                             known_callables=known_callables,
+                            extern_fns=extern_fns,
                         )
                     )
                 continue
@@ -217,6 +222,7 @@ class HLIRLowerer:
                             gpu_functions=gpu_functions,
                             static_methods=static_methods,
                             known_callables=known_callables,
+                            extern_fns=extern_fns,
                         )
                     )
                 continue
@@ -245,14 +251,19 @@ class HLIRLowerer:
                         gpu_functions=gpu_functions,
                         static_methods=static_methods,
                         known_callables=known_callables,
+                        extern_fns=extern_fns,
                     )
                 )
+
+            # ExternBlock — metadata only; call sites are annotated via extern_fns table.
+            # No HLIR function body to emit.
 
         return HModule(
             version="0.1",
             source=source_name,
             functions=functions,
             attrs=self._module_attrs(program),
+            extern_fns=list(extern_fns.values()),
         )
 
     def _collect_gpu_functions(self, program: ast.Program) -> dict[str, GpuDecoratorConfig]:
@@ -315,7 +326,26 @@ class HLIRLowerer:
             elif isinstance(decl, ast.ImplDecl):
                 for method in decl.methods:
                     names.add(f"{decl.target}.{method.name}")
+            elif isinstance(decl, ast.ExternBlock):
+                for fn in decl.fns:
+                    names.add(fn.name)
         return names
+
+    def _collect_extern_fns(self, program: ast.Program) -> dict[str, HExternDecl]:
+        """Build a name → HExternDecl table from all ExternBlock declarations."""
+        table: dict[str, HExternDecl] = {}
+        for decl in program.declarations:
+            if isinstance(decl, ast.ExternBlock):
+                for fn in decl.fns:
+                    table[fn.name] = HExternDecl(
+                        manv_name=fn.name,
+                        c_name=fn.c_name,
+                        lib=fn.lib,
+                        param_types=[p.type_name for p in fn.params],
+                        return_type=fn.return_type,
+                        varargs=fn.varargs,
+                    )
+        return table
 
     def _module_attrs(self, program: ast.Program) -> dict[str, Any]:
         """Preserve non-executable symbol metadata needed by runtime tooling.
@@ -363,6 +393,7 @@ class HLIRLowerer:
         gpu_functions: dict[str, GpuDecoratorConfig] | None = None,
         static_methods: set[str] | None = None,
         known_callables: set[str] | None = None,
+        extern_fns: dict[str, HExternDecl] | None = None,
     ) -> HFunction:
         state = _LowerState(
             fn_name=fn_name,
@@ -372,6 +403,7 @@ class HLIRLowerer:
             gpu_functions=dict(gpu_functions or {}),
             static_methods=set(static_methods or set()),
             known_callables=set(known_callables or set()),
+            extern_fns=dict(extern_fns or {}),
         )
 
         for index, param in enumerate(params):
@@ -1360,6 +1392,51 @@ class HLIRLowerer:
                 node=expr,
             )
             return out
+        # Extern C function call — annotate so LLVM codegen can emit the right ABI.
+        ext = state.extern_fns.get(callee_name)
+        if ext is not None:
+            if state.unwind_targets:
+                normal_label = state.new_label("invoke_ok")
+                state.terminate(
+                    "invoke",
+                    [*arg_values, normal_label, state.unwind_targets[-1]],
+                    attrs={
+                        "kind": "call",
+                        "callee": callee_name,
+                        "callsite_id": callsite_id,
+                        "dest": out,
+                        "extern": True,
+                        "extern_lib": ext.lib,
+                        "extern_c_name": ext.c_name,
+                        "extern_varargs": ext.varargs,
+                        "extern_param_types": ext.param_types,
+                        "extern_return_type": ext.return_type,
+                    },
+                    node=expr,
+                )
+                state.set_block(normal_label)
+                return out
+            state.emit(
+                HInstruction(
+                    op="call",
+                    dest=out,
+                    args=arg_values,
+                    attrs={
+                        "callee": callee_name,
+                        "callsite_id": callsite_id,
+                        "extern": True,
+                        "extern_lib": ext.lib,
+                        "extern_c_name": ext.c_name,
+                        "extern_varargs": ext.varargs,
+                        "extern_param_types": ext.param_types,
+                        "extern_return_type": ext.return_type,
+                    },
+                    effects=["io", "reads_memory", "writes_memory"],
+                ),
+                node=expr,
+            )
+            return out
+
         if state.unwind_targets:
             normal_label = state.new_label("invoke_ok")
             state.terminate(

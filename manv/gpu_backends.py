@@ -28,6 +28,7 @@ from .backends.cuda import (
     cuda_is_available,
     emit_cuda_cpp,
 )
+from .backends.webgpu import emit_wgsl
 from .device.interfaces import BackendId
 from .gpu_trace import TraceRecorder
 from .kernel_ir import KIRModule, parse_kir_module
@@ -160,6 +161,29 @@ class CudaKernelCompiler(BaseKernelCompiler):
             reflection={"kernels": [kernel.name for kernel in module.kernels], "arch": arch},
             entrypoints=[kernel.name for kernel in module.kernels],
             compile_log=compile_log,
+            cache_key=cache_key,
+        )
+
+
+class WebGPUKernelCompiler(BaseKernelCompiler):
+    backend: BackendId = "webgpu"
+
+    def compile(self, module: KIRModule, target: str, options: dict[str, Any] | None = None) -> CompiledKernelBundle:
+        opts = dict(options or {})
+        workgroup_size = int(opts.get("workgroup_size", 64))
+        wgsl = emit_wgsl(module, workgroup_size=workgroup_size)
+        cache_key = f"{module.canonical_hash()}:webgpu:{target}:wgsl"
+        return CompiledKernelBundle(
+            backend="webgpu",
+            target=target,
+            binaries={"wgsl": wgsl},
+            reflection={
+                "kernels": [k.name for k in module.kernels],
+                "dialect": "wgsl",
+                "workgroup_size": workgroup_size,
+            },
+            entrypoints=[k.name for k in module.kernels],
+            compile_log=["wgsl emission complete"],
             cache_key=cache_key,
         )
 
@@ -355,7 +379,7 @@ BACKEND_COMPILERS: dict[BackendId, BaseKernelCompiler] = {
     "level0": TextBackendCompiler("level0", "spirv_text"),
     "vulkan-spv": TextBackendCompiler("vulkan-spv", "spirv_text"),
     "directx": TextBackendCompiler("directx", "hlsl"),
-    "webgpu": TextBackendCompiler("webgpu", "wgsl"),
+    "webgpu": WebGPUKernelCompiler(),
     "cpu": TextBackendCompiler("cpu", "kir_json"),
 }
 

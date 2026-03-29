@@ -52,6 +52,12 @@ class Parser:
                 if decorators:
                     self._error("E1012", "decorators are not supported on module declarations", self._current())
                 declarations.append(self._parse_module_decl())
+            elif self._match_keyword("extern"):
+                if decorators:
+                    self._error("E1012", "decorators are not supported on extern declarations", self._current())
+                for node in self._parse_extern():
+                    declarations.append(node)
+                continue
             else:
                 if decorators:
                     self._error("E1012", "decorators must appear immediately before a function declaration", self._current())
@@ -226,6 +232,8 @@ class Parser:
             # Local function declaration — defines a named function in current scope.
             decl = self._parse_fn_decl()
             return decl
+        if self._match_keyword("extern"):
+            return list(self._parse_extern())
         if self._match_keyword("include"):
             result = self._parse_include_stmt()
             self._consume_required_newline("expected newline after include")
@@ -400,6 +408,96 @@ class Parser:
             args.append(self._parse_expression())
         self._expect_op(")")
         return ast.SyscallExpr(target=target, args=args, span=self._span(tok))
+
+    def _parse_extern(self) -> list[ast.ExternBlock]:
+        """Parse `extern "lib" fn ...` or `extern "lib": block` forms."""
+        extern_tok = self._prev()
+        if not self._is("STRING"):
+            self._error("E1013", "expected library name string after 'extern'", self._current())
+        lib_tok = self._advance()
+        lib = lib_tok.lexeme  # the processed string value from lexer
+
+        span = self._span(extern_tok)
+
+        # Single-fn form: extern "lib" fn name(...)
+        if self._match_keyword("fn"):
+            fn_decl = self._parse_extern_fn(lib)
+            block = ast.ExternBlock(lib=lib, fns=[fn_decl], span=span)
+            self._consume_newlines()
+            return [block]
+
+        # Block form: extern "lib":\n    INDENT fn... fn... DEDENT
+        self._expect_op(":")
+        self._consume_required_newline("expected newline after 'extern' block header")
+        self._expect("INDENT", message="expected indented extern block")
+        fns: list[ast.ExternFnDecl] = []
+        while not self._is("DEDENT") and not self._is("EOF"):
+            self._consume_newlines()
+            if self._is("DEDENT") or self._is("EOF"):
+                break
+            if not self._match_keyword("fn"):
+                self._error("E1006", "expected 'fn' inside extern block", self._current())
+            fns.append(self._parse_extern_fn(lib))
+        self._expect("DEDENT", message="expected dedent after extern block")
+        block = ast.ExternBlock(lib=lib, fns=fns, span=span)
+        return [block]
+
+    def _parse_extern_fn(self, lib: str) -> ast.ExternFnDecl:
+        """Parse a single extern fn declaration (after `fn` keyword consumed)."""
+        fn_tok = self._prev()
+        name_tok = self._expect("IDENT", message="expected extern function name")
+        self._expect_op("(")
+
+        params: list[ast.Param] = []
+        varargs = False
+        if not self._is_op(")"):
+            while True:
+                # Handle `...` varargs marker (tokenized as `..` + `.`)
+                if self._is_op("..") and self._peek(1).kind == "OP" and self._peek(1).lexeme == ".":
+                    self._advance()  # consume ".."
+                    self._advance()  # consume "."
+                    varargs = True
+                    break
+                p_tok = self._expect("IDENT", message="expected parameter name")
+                p_type = None
+                if self._match_op(":"):
+                    p_type = self._parse_type(stop_ops={",", ")"})
+                params.append(ast.Param(name=p_tok.lexeme, type_name=p_type, span=self._span(p_tok)))
+                if self._match_op(","):
+                    # Check for trailing `...` varargs
+                    if self._is_op("..") and self._peek(1).kind == "OP" and self._peek(1).lexeme == ".":
+                        self._advance()  # consume ".."
+                        self._advance()  # consume "."
+                        varargs = True
+                        break
+                    continue
+                break
+
+        self._expect_op(")")
+
+        return_type: str | None = None
+        if self._match_op("->"):
+            return_type = self._parse_type(stop_ops={",", ")"}, stop_keywords={"as"})
+
+        # Optional `as "c_symbol_name"` alias
+        c_name = name_tok.lexeme
+        if self._match_keyword("as"):
+            if not self._is("STRING"):
+                self._error("E1013", "expected string after 'as' in extern fn alias", self._current())
+            alias_tok = self._advance()
+            c_name = alias_tok.lexeme
+
+        self._consume_required_newline("expected newline after extern fn declaration")
+
+        return ast.ExternFnDecl(
+            name=name_tok.lexeme,
+            c_name=c_name,
+            lib=lib,
+            params=params,
+            return_type=return_type if return_type != "void" else None,
+            varargs=varargs,
+            span=self._span(fn_tok),
+        )
 
     def _parse_try_stmt(self) -> ast.TryStmt:
         try_tok = self._prev()
@@ -706,7 +804,7 @@ class Parser:
         self._expect("DEDENT", message="expected dedent")
         return lines
 
-    def _parse_type(self, stop_ops: set[str]) -> str:
+    def _parse_type(self, stop_ops: set[str], stop_keywords: set[str] | None = None) -> str:
         parts: list[str] = []
         bracket_depth = 0
         while True:
@@ -722,6 +820,8 @@ class Parser:
                     bracket_depth = max(0, bracket_depth - 1)
                 if bracket_depth == 0 and tok.lexeme in stop_ops:
                     break
+            if tok.kind == "KEYWORD" and bracket_depth == 0 and stop_keywords and tok.lexeme in stop_keywords:
+                break
             parts.append(self._advance().lexeme)
         result = "".join(parts).strip()
         if not result:
@@ -888,7 +988,7 @@ class Parser:
             return ast.LiteralExpr(value=None, literal_type="none", span=self._span(tok))
         if self._match_keyword("syscall"):
             return self._parse_syscall_expr()
-        if tok.kind == "KEYWORD" and tok.lexeme in {"type", "int", "i32", "float", "f32", "bool", "str", "void"}:
+        if tok.kind == "KEYWORD" and tok.lexeme in {"type", "int", "i32", "i64", "float", "f32", "bool", "str", "void", "ptr"}:
             self._advance()
             return ast.IdentifierExpr(name=tok.lexeme, span=self._span(tok))
         if self._match("IDENT"):

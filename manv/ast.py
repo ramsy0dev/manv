@@ -339,6 +339,35 @@ class SyscallExpr:
 
 
 @dataclass
+class ExternFnDecl:
+    """Single extern C function declaration.
+
+    `extern "c" fn malloc(size: int) -> ptr`
+    `extern "c" fn c_len(s: ptr) -> int as "strlen"`  # alias form
+    """
+    name: str            # ManV binding name
+    c_name: str          # actual C symbol name (equals name unless `as` alias given)
+    lib: str             # library identifier ("c", "m", "ssl", absolute path)
+    params: list[Any]
+    return_type: str | None   # None / "void" → C void
+    varargs: bool             # True when trailing `...` present (printf-style)
+    span: Span
+
+
+@dataclass
+class ExternBlock:
+    """Block of extern declarations sharing a library name.
+
+    extern "c":
+        fn malloc(size: int) -> ptr
+        fn free(p: ptr)
+    """
+    lib: str
+    fns: list[Any]
+    span: Span
+
+
+@dataclass
 class UnsupportedStmt:
     feature: str
     detail: str

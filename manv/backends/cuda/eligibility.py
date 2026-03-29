@@ -22,7 +22,7 @@ from typing import Any
 from ...hlir import HFunction, HInstruction
 
 
-ALLOWED_PARAM_TYPES = {"i32", "f32", "bool"}
+ALLOWED_PARAM_TYPES = {"i32", "i64", "f32", "f64", "bool"}
 ALLOWED_BUFFER_PREFIXES = ("array[",)
 ALLOWED_OPS = {
     "declare_var",
@@ -160,7 +160,7 @@ def _classify_instruction(instr: HInstruction) -> list[GpuEligibilityIssue]:
                     hlir_id=instr.instr_id,
                 )
             )
-        elif name not in {"core_len"}:
+        elif name not in _ALLOWED_INTRINSICS:
             issues.append(
                 GpuEligibilityIssue(
                     code="GPU_INELIGIBLE_UNSUPPORTED_CONTROL_FLOW",
@@ -169,3 +169,10 @@ def _classify_instruction(instr: HInstruction) -> list[GpuEligibilityIssue]:
                 )
             )
     return issues
+
+
+_ALLOWED_INTRINSICS = {
+    "core_len",
+    "sqrt", "sin", "cos", "tan", "exp", "log", "log2",
+    "pow", "floor", "ceil", "abs", "fabs", "min", "max", "clamp",
+}

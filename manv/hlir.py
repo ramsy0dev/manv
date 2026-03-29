@@ -121,11 +121,38 @@ class HFunction:
 
 
 @dataclass
+class HExternDecl:
+    """Metadata for a single C extern function declaration.
+
+    Carried on HModule so LLVM codegen can emit ``declare`` lines and the
+    linker step can collect ``-l`` flags without re-scanning the AST.
+    """
+
+    manv_name: str
+    c_name: str
+    lib: str
+    param_types: list[str | None]
+    return_type: str | None
+    varargs: bool
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "manv_name": self.manv_name,
+            "c_name": self.c_name,
+            "lib": self.lib,
+            "param_types": self.param_types,
+            "return_type": self.return_type,
+            "varargs": self.varargs,
+        }
+
+
+@dataclass
 class HModule:
     version: str
     source: str
     functions: list[HFunction]
     attrs: dict[str, Any] = field(default_factory=dict)
+    extern_fns: list[HExternDecl] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -133,4 +160,5 @@ class HModule:
             "source": self.source,
             "functions": [f.to_dict() for f in self.functions],
             "attrs": self.attrs,
+            "extern_fns": [e.to_dict() for e in self.extern_fns],
         }

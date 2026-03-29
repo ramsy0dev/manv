@@ -1,0 +1,94 @@
+# ---
+# 06_types_and_methods.mv
+#
+# Demonstrates:
+#   - type declaration with fields and default values
+#   - Instance methods using fn method(self, ...)
+#   - impl block adding methods to an existing type
+#   - Instantiation and field access
+#   - Calling methods on instances
+#   - Type inheritance
+# ---
+
+# --- Basic type declaration ---
+type Point:
+    let x: int = 0   # field with default value
+    let y: int = 0
+
+    fn __init__(self, x: int, y: int):
+        self.x = x   # assign field from constructor argument
+        self.y = y
+
+    fn __repr__(self) -> str:
+        return "Point(" + str(self.x) + ", " + str(self.y) + ")"
+
+    fn translate(self, dx: int, dy: int):
+        self.x = self.x + dx   # mutate the instance in place
+        self.y = self.y + dy
+
+    fn distance_from_origin(self) -> float:
+        # Use __intrin.sqrt_float for floating-point square root
+        return __intrin.sqrt_float(float(self.x * self.x + self.y * self.y))
+
+# --- Type with inheritance ---
+type Shape:
+    fn area(self) -> float:
+        return 0.0   # base implementation
+
+type Rectangle(Shape):   # Rectangle inherits from Shape
+    let width: float = 1.0
+    let height: float = 1.0
+
+    fn __init__(self, width: float, height: float):
+        self.width = width
+        self.height = height
+
+    fn area(self) -> float:
+        return self.width * self.height   # override base method
+
+    fn perimeter(self) -> float:
+        return 2.0 * (self.width + self.height)
+
+    fn __repr__(self) -> str:
+        return "Rectangle(" + str(self.width) + " x " + str(self.height) + ")"
+
+# --- impl block: extend an existing type without modifying its definition ---
+impl Point:
+    fn magnitude(self) -> float:
+        # Same result as distance_from_origin; added via impl
+        return __intrin.sqrt_float(float(self.x * self.x + self.y * self.y))
+
+    fn scale(self, factor: int):
+        self.x = self.x * factor
+        self.y = self.y * factor
+
+fn main() -> int:
+
+    # --- Instantiation ---
+    let p: Point = Point(3, 4)    # user-defined type — use let + annotation
+    print(p)                           # Point(3, 4)
+    print(p.x)                         # 3
+    print(p.y)                         # 4
+
+    # --- Calling instance methods ---
+    print(p.distance_from_origin())    # 5.0
+
+    p.translate(1, -1)
+    print(p)                           # Point(4, 3)
+
+    # --- Methods added via impl block ---
+    print(p.magnitude())               # 5.0
+    p.scale(2)
+    print(p)                           # Point(8, 6)
+
+    # --- Rectangle ---
+    let rect: Rectangle = Rectangle(5.0, 3.0)   # user-defined type — use let + annotation
+    print(rect)                        # Rectangle(5.0 x 3.0)
+    print(rect.area())                 # 15.0
+    print(rect.perimeter())            # 16.0
+
+    # --- isinstance check ---
+    if isinstance(rect, Rectangle):
+        print("rect is a Rectangle")
+
+    return 0

@@ -1,0 +1,109 @@
+# ---
+# 04_control_flow.mv
+#
+# Demonstrates:
+#   - if / else / chained conditions via nested if-else
+#   - while loop with break and continue
+#   - for...in range and for...in array
+#
+# Note: ManV's `else` must be followed by `:` immediately — there is
+# no `else if` keyword. Use a nested `if` inside the `else` block
+# to express chained conditions.
+#
+# Note: `match` / `case` is parsed and executed by the interpreter
+# but is not yet accepted by the semantic analysis pass, so it is
+# not included here.
+# ---
+
+fn classify(n: int) -> str:
+    # Chained conditions expressed as nested if/else
+    if n < 0:
+        return "negative"
+    else:
+        if n == 0:
+            return "zero"
+        else:
+            if n < 10:
+                return "small positive"
+            else:
+                return "large positive"
+
+fn is_even(n: int) -> bool:
+    if n % 2 == 0:
+        return true
+    else:
+        return false
+
+fn main() -> int:
+
+    # --- if / else (nested for chaining) ---
+    print(classify(-5))   # "negative"
+    print(classify(0))    # "zero"
+    print(classify(7))    # "small positive"
+    print(classify(42))   # "large positive"
+
+    # --- Simple if / else ---
+    if is_even(4):
+        print("4 is even")
+    else:
+        print("4 is odd")
+
+    if is_even(7):
+        print("7 is even")
+    else:
+        print("7 is odd")
+
+    # --- while loop ---
+    int i = 0
+    while i < 5:
+        print(i)   # 0 1 2 3 4
+        i = i + 1
+
+    # --- while with break ---
+    int j = 0
+    while true:
+        if j >= 3:
+            break      # exit the loop
+        print(j)       # 0 1 2
+        j = j + 1
+
+    # --- while with continue ---
+    int k = 0
+    while k < 6:
+        k = k + 1
+        if k % 2 == 0:
+            continue   # skip even numbers
+        print(k)       # 1 3 5
+
+    # --- for...in range (0..5 = 0,1,2,3,4) ---
+    for idx in 0..5:
+        print(idx)
+
+    # --- for...in array ---
+    array fruits = ["apple", "banana", "cherry"]
+    for fruit in fruits:
+        print(fruit)
+
+    # --- for with break ---
+    for n in 0..10:
+        if n == 4:
+            break     # stop at 4
+        print(n)      # 0 1 2 3
+
+    # --- for with continue ---
+    for n in 0..6:
+        if n % 2 == 0:
+            continue  # skip even numbers
+        print(n)      # 1 3 5
+
+    # --- Nested loops ---
+    int row = 0
+    while row < 3:
+        int col = 0
+        while col < 3:
+            if row == col:
+                print("*")   # diagonal elements
+            col = col + 1
+        row = row + 1
+
+    return 0

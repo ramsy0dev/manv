@@ -1,0 +1,115 @@
+# ---
+# 10_closures_and_lambdas.mv
+#
+# Demonstrates:
+#   - Anonymous function literals (lambda expressions)
+#   - Lambda syntax: fn(params) -> return_type: <newline> <indented body>
+#   - Passing a lambda to a higher-order function
+#   - Returning a function from a function (closure over a captured value)
+#   - Storing functions in an array and iterating over them
+#
+# Note: Lambda bodies require a full indented block — single-expression
+# lambdas (fn(x): x * 2) are NOT supported. Always use:
+#   let f = fn(x: int) -> int:
+#       return x * 2
+# ---
+
+# --- Higher-order: apply fn_val to every element of arr ---
+fn map_array(arr: array, fn_val) -> array:
+    array result = []
+    for item in arr:
+        result = array_append(result, fn_val(item))
+    return result
+
+# --- Higher-order: keep only elements where fn_val returns true ---
+fn filter_array(arr: array, fn_val) -> array:
+    array result = []
+    for item in arr:
+        if fn_val(item):
+            result = array_append(result, item)
+    return result
+
+# --- Returns a new function that adds n to its argument ---
+# The returned function "closes over" the value of n.
+fn make_adder(n: int):
+    return fn(x: int) -> int:
+        return x + n   # n is captured from the enclosing scope
+
+# --- Returns a function that multiplies by factor ---
+fn make_multiplier(factor: int):
+    return fn(x: int) -> int:
+        return x * factor
+
+fn double(x: int) -> int:
+    return x * 2
+
+fn cube(x: int) -> int:
+    return x * x * x
+
+fn main() -> int:
+
+    # --- Basic anonymous function literal ---
+    let square = fn(x: int) -> int:
+        return x * x
+
+    print(square(5))   # 25
+    print(square(9))   # 81
+
+    # --- Passing a named function as a value ---
+    array numbers = [1, 2, 3, 4, 5]
+    array doubled = map_array(numbers, double)   # pass named fn directly
+    print(doubled)   # [2, 4, 6, 8, 10]
+
+    array cubed = map_array(numbers, cube)
+    print(cubed)   # [1, 8, 27, 64, 125]
+
+    # --- Passing an inline lambda to a higher-order function ---
+    # The lambda body must be on the next line, indented.
+    # When the lambda is the last argument, ) goes on the line after the block.
+    array evens = filter_array(numbers, fn(x: int) -> bool:
+        return x % 2 == 0
+    )
+    print(evens)     # [2, 4]
+
+    array incremented = map_array(numbers, fn(x: int) -> int:
+        return x + 10
+    )
+    print(incremented)   # [11, 12, 13, 14, 15]
+
+    # --- Closures: make_adder returns a function capturing n ---
+    let add5  = make_adder(5)
+    let add10 = make_adder(10)
+
+    print(add5(3))    # 8   (3 + 5)
+    print(add10(3))   # 13  (3 + 10)
+    print(add5(add10(1)))  # add10(1)=11, then add5(11)=16
+
+    # --- Closures: make_multiplier ---
+    let triple = make_multiplier(3)
+    let times7 = make_multiplier(7)
+
+    print(triple(4))   # 12
+    print(times7(6))   # 42
+
+    # --- Storing functions in an array ---
+    # Define each function as a variable first, then collect them.
+    let add_one = fn(x: int) -> int:
+        return x + 1
+    let times_two = fn(x: int) -> int:
+        return x * 2
+    let squared = fn(x: int) -> int:
+        return x * x
+
+    array transforms = [add_one, times_two, squared]   # array of callables
+
+    for transform in transforms:
+        print(transform(3))   # 4, 6, 9
+
+    # --- Pipeline: apply transforms in sequence ---
+    array pipeline = [add5, triple, times_two]
+    int acc = 2
+    for step in pipeline:
+        acc = step(acc)   # add5(2)=7, triple(7)=21, times_two(21)=42
+    print(acc)   # 42
+
+    return 0

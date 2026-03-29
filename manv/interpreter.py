@@ -294,6 +294,10 @@ class Interpreter:
                     mod_obj = self.module_cache.get(canonical)
                     if mod_obj is not None:
                         mod_obj.declared_name = decl.name
+            elif isinstance(decl, ast.ExternBlock):
+                for fn_decl in decl.fns:
+                    cfn = self._make_extern_callable(fn_decl)
+                    self.global_env.define(fn_decl.name, cfn)
             else:
                 raise unsupported_feature(type(decl).__name__, self.file, 1, 1)
 
@@ -340,6 +344,12 @@ class Interpreter:
             # Local function declaration — creates a closure capturing the current env.
             fn_val = FunctionValue(decl=stmt, globals_env=env)
             env.define(stmt.name, fn_val)
+            return None
+
+        if isinstance(stmt, ast.ExternBlock):
+            for fn_decl in stmt.fns:
+                cfn = self._make_extern_callable(fn_decl)
+                env.define(fn_decl.name, cfn)
             return None
 
         if isinstance(stmt, ast.ModuleDecl):
@@ -1056,6 +1066,12 @@ class Interpreter:
             return self._invoke_intrinsic(callee.name, args, span)
         if isinstance(callee, StdCallable):
             return self._invoke_intrinsic(callee.intrinsic, args, span)
+        if callable(callee):
+            # Python callables registered by extern declarations or other host bindings.
+            try:
+                return callee(*args)
+            except Exception as exc:
+                self._raise_runtime("RuntimeError", str(exc), span)
         self._raise_runtime("TypeError", "call target is not callable", span)
 
     def _try_primitive_cast(self, type_obj: TypeObject, args: list[Any], span: Any) -> Any | None:
@@ -1623,6 +1639,10 @@ class Interpreter:
                         type_obj.methods[key] = fn_val
                         if method.name == "init":
                             type_obj.methods["init"] = fn_val
+                elif isinstance(decl, ast.ExternBlock):
+                    for fn_decl in decl.fns:
+                        cfn = self._make_extern_callable(fn_decl)
+                        module_env.define(fn_decl.name, cfn)
 
             self._module_exec_stack.append(canonical_name)
             try:
@@ -1731,6 +1751,40 @@ class Interpreter:
             items = sorted(value.items(), key=lambda kv: repr(kv[0]))
             return "{" + ", ".join(f"{self._stringify(k)}: {self._stringify(v)}" for k, v in items) + "}"
         return str(value)
+
+    def _make_extern_callable(self, fn_decl: "ast.ExternFnDecl") -> Any:
+        """Build a Python callable that invokes a C function via ctypes.
+
+        The returned object is stored in the environment under `fn_decl.name`
+        so ManV programs can call it like a regular function.
+        """
+        from .ffi import load_library, manv_to_ctype, marshal_arg, marshal_vararg, unmarshal_return
+
+        lib_id = fn_decl.lib
+
+        def _caller(*args: Any) -> Any:
+            try:
+                clib = load_library(lib_id)
+                cfunc = getattr(clib, fn_decl.c_name)
+                cfunc.restype = manv_to_ctype(fn_decl.return_type)
+                if not fn_decl.varargs:
+                    cfunc.argtypes = [manv_to_ctype(p.type_name) for p in fn_decl.params]
+
+                cargs = []
+                for i, arg in enumerate(args):
+                    param_type = fn_decl.params[i].type_name if i < len(fn_decl.params) else None
+                    if fn_decl.varargs and i >= len(fn_decl.params):
+                        cargs.append(marshal_vararg(arg))
+                    else:
+                        cargs.append(marshal_arg(arg, param_type))
+
+                result = cfunc(*cargs)
+                return unmarshal_return(result, fn_decl.return_type)
+            except OSError as exc:
+                self._raise_runtime("RuntimeError", f"extern call failed: {exc}", fn_decl.span)
+
+        _caller.__name__ = fn_decl.name
+        return _caller
 
     def _span_of(self, node: Any) -> Any:
         return getattr(node, "span", type("_S", (), {"line": 1, "column": 1})())

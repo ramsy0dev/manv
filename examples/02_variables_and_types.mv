@@ -1,0 +1,71 @@
+# ---
+# 02_variables_and_types.mv
+#
+# Demonstrates:
+#   - Explicit-type declarations: type_name variable = value
+#   - All primitive types: int, i32, i64, float, f32, bool, str
+#   - Type conversion functions: int(), float(), str(), bool()
+#   - Standard assignment (note: augmented assignment a+=b is not yet
+#     supported by the interpreter; expand to a = a + b instead)
+#
+# Note: i64 and ptr use `let name: T = value` because those type names
+#       are not supported as declaration-prefix keywords.
+# ---
+
+fn main() -> int:
+
+    # --- Integer types ---
+    int a = 42
+    int b = 10
+    i32 small = 2147483647           # 32-bit signed integer max
+    let big: i64 = 9223372036854     # i64 is not a decl keyword — use let + annotation
+    print(a)
+    print(b)
+    print(small)
+    print(big)
+
+    # --- Floating-point types ---
+    float pi = 3.14159
+    f32 single = 1.0                 # 32-bit float
+    print(pi)
+    print(single)
+
+    # --- Boolean and string ---
+    bool flag = true
+    str name = "ManV"
+    print(flag)
+    print(name)
+
+    # --- none (null value) ---
+    let nothing = none
+    print(nothing)
+
+    # --- Type conversions ---
+    float x = 9.7
+    int xi = int(x)         # float -> int (truncates toward zero)
+    str xs = str(x)         # float -> str
+    bool xb = bool(x)       # float -> bool (non-zero is true)
+
+    print(xi)   # 9
+    print(xs)   # "9.7"
+    print(xb)   # true
+
+    str zero_str = "0"
+    int zero_int = int(zero_str)     # str -> int
+    bool zero_bool = bool(zero_int)  # int -> bool (0 is false)
+
+    print(zero_int)   # 0
+    print(zero_bool)  # false
+
+    # --- Manual increments (augmented assignment is not yet supported) ---
+    int n = 10
+    n = n + 5   # equivalent to n += 5
+    print(n)    # 15
+    n = n - 3   # equivalent to n -= 3
+    print(n)    # 12
+    n = n * 2   # equivalent to n *= 2
+    print(n)    # 24
+    n = n / 4   # equivalent to n /= 4
+    print(n)    # 6
+
+    return 0

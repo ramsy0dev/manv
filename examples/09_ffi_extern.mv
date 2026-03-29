@@ -1,0 +1,60 @@
+# ---
+# 09_ffi_extern.mv
+#
+# Demonstrates ManV's C Foreign Function Interface (FFI).
+#
+#   - extern "c": block form declaring multiple C functions at once
+#   - Calling an extern fn and inspecting its return value
+#   - c_str(s)  — convert a ManV string to a C-compatible char* pointer
+#   - ptr_null() / ptr_is_null()  — null pointer creation and check
+#   - ptr_add()  — pointer arithmetic (advance a pointer by N bytes)
+#
+# Note: this file calls real libc functions (strlen, malloc, free).
+# It will run correctly on any POSIX system and most Windows environments
+# when the ManV interpreter is linked against the C runtime.
+# ---
+
+# --- extern block: declare multiple C functions together ---
+extern "c":
+    fn strlen(s: ptr) -> int       # return the byte-length of a C string
+    fn malloc(size: int) -> ptr    # allocate `size` bytes on the heap
+    fn free(p: ptr)                # release previously malloc'd memory
+
+# --- Single-function extern: varargs printf ---
+# printf uses C varargs (...), which is platform-dependent.
+# Uncomment if your platform supports it:
+# extern "c" fn printf(fmt: ptr, ...) -> int
+
+fn main() -> int:
+
+    # --- c_str: turn a ManV string into a C char* ---
+    let hello: ptr = c_str("Hello, FFI!")   # ptr — no C-style keyword yet; use let + annotation
+
+    # --- Call the C strlen to measure it ---
+    int length = strlen(hello)
+    print(length)   # 11 (bytes in "Hello, FFI!")
+
+    # --- ptr_null and ptr_is_null ---
+    let null_ptr: ptr = ptr_null()     # ptr — no C-style keyword yet; use let + annotation
+    if ptr_is_null(null_ptr):
+        print("pointer is null")       # always prints
+
+    # --- malloc / free: allocate a raw 64-byte buffer ---
+    let buf: ptr = malloc(64)
+    if ptr_is_null(buf):
+        print("malloc failed")
+        return 1
+    print("malloc succeeded, buffer is non-null")
+
+    # --- ptr_add: advance pointer by an offset (bytes) ---
+    let offset_ptr: ptr = ptr_add(buf, 8)   # pointer 8 bytes into the buffer
+    if ptr_is_null(offset_ptr):
+        print("offset ptr is null")
+    else:
+        print("offset pointer is valid")
+
+    # --- free the buffer when done ---
+    free(buf)
+    print("buffer freed")
+
+    return 0

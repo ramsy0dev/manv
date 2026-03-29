@@ -36,7 +36,7 @@ BUILTIN_TYPES = {
     "OutOfMemoryError",
 }
 STUB_FEATURE_DECLS = ()
-STUB_FEATURE_STMTS = (ast.UnsupportedStmt,)
+STUB_FEATURE_STMTS = (ast.UnsupportedStmt, ast.ExternBlock)
 
 
 @dataclass
@@ -250,6 +250,7 @@ class SemanticAnalyzer:
         self.is_std_source = is_std_source_path(file)
         self.diagnostics: list[Diagnostic] = []
         self.functions: dict[str, ast.FnDecl] = {}
+        self.extern_fns: set[str] = set()
         self.types: set[str] = set(BUILTIN_TYPES)
         self.type_attrs: dict[str, dict[str, str | None]] = {}
         self.type_accessors: dict[str, dict[str, dict[str, ast.FnDecl]]] = {}
@@ -258,6 +259,9 @@ class SemanticAnalyzer:
         for decl in program.declarations:
             if isinstance(decl, ast.FnDecl):
                 self._register_function(decl.name, decl)
+            elif isinstance(decl, ast.ExternBlock):
+                for fn in decl.fns:
+                    self.extern_fns.add(fn.name)
             elif isinstance(decl, ast.TypeDecl):
                 if decl.name in self.types:
                     self._add_error("E2001", f"duplicate type '{decl.name}'", decl.span.line, decl.span.column)
@@ -693,7 +697,7 @@ class SemanticAnalyzer:
             return None
         if scope.contains(callee.name):
             return None
-        if callee.name in self.functions or callee.name in self.types:
+        if callee.name in self.functions or callee.name in self.types or callee.name in self.extern_fns:
             return None
         return BUILTIN_ALIASES.get(callee.name)
 
@@ -712,6 +716,7 @@ class SemanticAnalyzer:
                     expr.name in self.functions
                     or expr.name in BUILTIN_FUNCTIONS
                     or expr.name in self.types
+                    or expr.name in self.extern_fns
                     or scope.contains(expr.name)
                 ):
                     return "fn"
