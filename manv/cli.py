@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Annotated
@@ -9,7 +10,7 @@ from typing import Annotated
 import typer
 
 from . import __version__
-from .builder import build_target, host_target_name
+from .builder import BuildResult, build_target, host_target_name
 from .compiler import compile_pipeline_full, compile_target
 from .device import render_selection_report
 from .dap import DAPServer
@@ -63,17 +64,38 @@ def _check_stdlib(ctx: typer.Context) -> None:
         pass
 
 
+def _supports_color() -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return getattr(sys.stdout, "isatty", lambda: False)()
+
+
+def _c(text: str, **kw: object) -> str:
+    """Apply typer.style only when color is supported."""
+    return typer.style(text, **kw) if _supports_color() else text
+
+
 def _fail(err: ManvError) -> None:
-    typer.echo(err.render(), err=True)
+    typer.echo(_c(err.render(), fg=typer.colors.RED), err=True)
     raise typer.Exit(code=1)
 
 
 def _title(text: str) -> None:
-    typer.echo(f"[{text}]")
+    typer.echo(_c(f"[{text}]", bold=True, fg=typer.colors.CYAN))
 
 
 def _kv(key: str, value: object) -> None:
-    typer.echo(f"{key}: {value}")
+    typer.echo(f"  {_c(key + ':', fg=typer.colors.BRIGHT_BLACK)} {value}")
+
+
+def _ok(text: str) -> None:
+    typer.echo(_c("  " + text, fg=typer.colors.GREEN, bold=True))
+
+
+def _note(text: str) -> None:
+    typer.echo(_c("  " + text, fg=typer.colors.YELLOW))
 
 
 def _requested_reports(value: str | None) -> set[str]:
@@ -149,7 +171,7 @@ def init(
     _kv("entry", ctx.entry)
     _kv("mode", "app")
     _kv("tests", ctx.root / "tests" / "e2e" / "hello_world" / "case.toml")
-    typer.echo("status: initialized")
+    _ok("status: initialized")
 
 
 @app.command()
@@ -267,14 +289,12 @@ def compile_cmd(
     _title("Compile")
     _kv("source", ctx.entry)
     _kv("host_backend", host)
-    _kv("device_backend", device_backend)
     _kv("target", abi_target)
-    _kv("optimize", optimize)
-    _kv("capture", capture)
     _kv("out_dir", out_dir)
-    typer.echo("artifacts:")
+    typer.echo(_c("  artifacts:", fg=typer.colors.BRIGHT_BLACK))
     for kind, path in written.items():
-        typer.echo(f"  - {kind:<12} {path}")
+        typer.echo(f"    {_c(kind + ':', fg=typer.colors.BRIGHT_BLACK):<18} {path}")
+    _ok("status: compiled")
 
 
 @app.command()
@@ -301,7 +321,7 @@ def build(
     if "kernelize" in reports:
         _emit_kernelize_report(target)
     try:
-        bundle = build_target(
+        result = build_target(
             target,
             Path(out).resolve() if out else None,
             portable_cache=portable_cache,
@@ -310,12 +330,17 @@ def build(
         )
     except ManvError as err:
         _fail(err)
+        return
     _title("Build")
-    _kv("artifact", bundle)
+    _kv("artifact", result.path)
+    _kv("target", host_target_name())
     _kv("host_backend", host)
     _kv("device_backend", device_backend)
-    _kv("target", host_target_name())
-    typer.echo("status: built")
+    if result.was_rebuilt:
+        _note(f"rebuilt  ({result.reason})")
+        _ok("status: built")
+    else:
+        _ok("status: up to date")
 
 
 @app.command()
@@ -336,16 +361,22 @@ def test(
     del cuda
     result = run_e2e_suite(path)
     _title("Test")
-    typer.echo(f"{'result':<8} {'case':<28} detail")
-    typer.echo("-" * 72)
+    typer.echo(f"  {'result':<8} {'case':<28} detail")
+    typer.echo("  " + "-" * 68)
     for case in result.results:
-        prefix = "PASS" if case.passed else "FAIL"
-        typer.echo(f"{prefix:<8} {case.name:<28} {case.message}")
+        case_name = f"'{case.name}'" if case.name else "<unnamed>"
+        if case.passed:
+            prefix = _c("PASS", fg=typer.colors.GREEN, bold=True)
+        else:
+            prefix = _c("FAIL", fg=typer.colors.RED, bold=True)
+        typer.echo(f"  {prefix:<8} {case_name:<28} {case.message}")
     total = result.passed + result.failed
-    typer.echo("-" * 72)
-    typer.echo(f"summary: passed={result.passed} failed={result.failed} total={total}")
+    typer.echo("  " + "-" * 68)
+    summary = f"summary: passed={result.passed} failed={result.failed} total={total}"
     if result.failed:
+        typer.echo(_c("  " + summary, fg=typer.colors.RED))
         raise typer.Exit(code=1)
+    typer.echo(_c("  " + summary, fg=typer.colors.GREEN))
 
 
 @auth_app.command("login")
@@ -361,7 +392,7 @@ def auth_login(
 
     session = save_registry_auth(registry=registry, token=final_token)
     _title("Registry Auth")
-    _kv("status", "logged_in")
+    _ok("status: logged_in")
     _kv("registry", session.registry)
     _kv("saved_at", session.saved_at)
 
@@ -371,11 +402,11 @@ def auth_status() -> None:
     session = load_registry_auth()
     _title("Registry Auth")
     if session is None:
-        _kv("status", "logged_out")
+        typer.echo(_c("  status: logged_out", fg=typer.colors.BRIGHT_BLACK))
         return
 
     masked = "*" * max(0, len(session.token) - 4) + session.token[-4:]
-    _kv("status", "logged_in")
+    _ok("status: logged_in")
     _kv("registry", session.registry)
     _kv("token", masked)
     _kv("saved_at", session.saved_at)
@@ -385,7 +416,7 @@ def auth_status() -> None:
 def auth_logout() -> None:
     removed = clear_registry_auth()
     _title("Registry Auth")
-    _kv("status", "logged_out")
+    typer.echo(_c("  status: logged_out", fg=typer.colors.BRIGHT_BLACK))
     _kv("cleared", removed)
 
 

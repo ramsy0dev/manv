@@ -3,5 +3,5 @@ command = "build"
 target = "."
 expect_exit = 0
 expect_files = [
-  ".manv/target",
+  "build",
 ]

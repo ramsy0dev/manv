@@ -19,14 +19,32 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
 from . import __version__
+from .build_manifest import (
+    BuildManifest,
+    MANIFEST_VERSION,
+    collect_input_files,
+    fingerprint_file,
+    is_up_to_date,
+    load_manifest,
+    save_manifest,
+)
 from .compiler import compile_pipeline_full, compile_target
 from .host import HostSelectionRequest, resolve_host_selection
 from .packaging import EmbeddedBuildMetadata, write_python_bundle
 from .project import discover_target
+
+
+@dataclass
+class BuildResult:
+    path: Path
+    was_rebuilt: bool
+    reason: str
 
 
 def host_target_name() -> str:
@@ -42,7 +60,7 @@ def default_bundle_path(context, out_dir: Path | None = None) -> Path:
     host_target = host_target_name()
     if out_dir is not None:
         return out_dir / f"{context.name}.mvz"
-    return context.target_dir / host_target / f"{context.name}.mvz"
+    return context.build_dir / host_target / f"{context.name}.mvz"
 
 
 def default_native_path(context, out_dir: Path | None = None) -> Path:
@@ -50,7 +68,7 @@ def default_native_path(context, out_dir: Path | None = None) -> Path:
     suffix = ".exe" if sys.platform == "win32" else ""
     if out_dir is not None:
         return out_dir / f"{context.name}{suffix}"
-    return context.target_dir / host_target / f"{context.name}{suffix}"
+    return context.build_dir / host_target / f"{context.name}{suffix}"
 
 
 def build_target(
@@ -60,7 +78,7 @@ def build_target(
     portable_cache: bool = False,
     host_backend: str = "auto",
     device_backend: str = "auto",
-) -> Path:
+) -> BuildResult:
     context = discover_target(path)
     host_selection = resolve_host_selection(
         HostSelectionRequest(
@@ -68,15 +86,57 @@ def build_target(
             policy="build",
         )
     )
-    if host_selection.resolved_host_backend == "interp":
-        return _build_interpreter_bundle(context, out_dir=out_dir, portable_cache=portable_cache)
+    resolved_host = host_selection.resolved_host_backend
+    host_target = host_target_name()
 
-    return _build_native_executable(
-        context,
-        out_dir=out_dir,
-        host_backend=host_backend,
-        device_backend=device_backend,
+    manifest_dir = out_dir if out_dir is not None else context.build_dir
+    input_files = collect_input_files(context.root, context.entry, context.config_path)
+    manifest = load_manifest(manifest_dir)
+    up_to_date, reason = is_up_to_date(
+        manifest, context.root, input_files,
+        host_target, resolved_host, device_backend, optimize=True,
     )
+
+    if up_to_date:
+        assert manifest is not None
+        out_path_str = manifest.outputs.get("native_exe") or manifest.outputs.get("bundle", "")
+        return BuildResult(path=Path(out_path_str), was_rebuilt=False, reason=reason)
+
+    if resolved_host == "interp":
+        artifact = _build_interpreter_bundle(context, out_dir=out_dir, portable_cache=portable_cache)
+        output_key = "bundle"
+    else:
+        artifact = _build_native_executable(
+            context,
+            out_dir=out_dir,
+            host_backend=host_backend,
+            device_backend=device_backend,
+        )
+        output_key = "native_exe"
+
+    inputs_records = {}
+    for file_path in input_files:
+        try:
+            rel = str(file_path.relative_to(context.root))
+        except ValueError:
+            rel = str(file_path)
+        if file_path.exists():
+            inputs_records[rel] = fingerprint_file(file_path)
+
+    new_manifest = BuildManifest(
+        format_version=MANIFEST_VERSION,
+        manv_version=__version__,
+        last_built_at=datetime.now(timezone.utc).isoformat(),
+        target=host_target,
+        host_backend=resolved_host,
+        device_backend=device_backend,
+        optimize=True,
+        inputs=inputs_records,
+        outputs={output_key: str(artifact)},
+    )
+    save_manifest(manifest_dir, new_manifest)
+
+    return BuildResult(path=artifact, was_rebuilt=True, reason=reason)
 
 
 def _build_interpreter_bundle(context, *, out_dir: Path | None, portable_cache: bool) -> Path:
@@ -130,7 +190,7 @@ def _build_native_executable(
         capture_graph=False,
     )
 
-    native_out_dir = out_dir if out_dir is not None else context.target_dir / host_target
+    native_out_dir = out_dir if out_dir is not None else context.build_dir / host_target
     try:
         written = compile_target(
             context.entry,

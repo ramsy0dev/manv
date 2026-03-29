@@ -531,7 +531,7 @@ class HLIRLowerer:
 
         if isinstance(stmt, ast.AugAssignStmt):
             current = state.new_temp()
-            state.emit(HInstruction(op="load_var", dest=current, attrs={"name": stmt.name}, effects=["reads_memory"]), node=stmt)
+            state.emit(HInstruction(op="load_var", dest=current, args=[stmt.name], effects=["reads_memory"]), node=stmt)
             rhs = self._lower_expr(state, stmt.value)
             result = state.new_temp()
             op = stmt.op[:-1]  # strip '=' to get base op

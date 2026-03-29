@@ -334,7 +334,7 @@ def test_build_command_and_bundle_run(tmp_path: Path) -> None:
     assert build.exit_code == 0
     assert "[Build]" in build.stdout
     shutil.rmtree(project / "src")
-    native_exe = project / ".manv" / "target" / host_target_name() / ("build_ok.exe" if sys.platform == "win32" else "build_ok")
+    native_exe = project / "build" / host_target_name() / ("build_ok.exe" if sys.platform == "win32" else "build_ok")
     assert native_exe.exists()
     proc = subprocess.run([str(native_exe)], capture_output=True, text=True, check=False)
     assert proc.returncode == 0
@@ -345,8 +345,34 @@ def test_build_host_interp_keeps_mvz(tmp_path: Path) -> None:
     project = _copy_fixture(tmp_path, "build_ok")
     build = runner.invoke(app, ["build", str(project), "--host", "interp"])
     assert build.exit_code == 0
-    run_file = project / ".manv" / "target" / host_target_name() / "build_ok.mvz"
+    run_file = project / "build" / host_target_name() / "build_ok.mvz"
     assert run_file.exists()
+
+
+def test_build_incremental_skips_rebuild(tmp_path: Path) -> None:
+    project = _copy_fixture(tmp_path, "build_ok")
+    if detect_llvm_toolchain() is None:
+        import pytest
+        pytest.skip("no LLVM toolchain")
+
+    # First build
+    r1 = runner.invoke(app, ["build", str(project)])
+    assert r1.exit_code == 0
+    assert "status: built" in r1.stdout
+
+    # Second build — nothing changed
+    r2 = runner.invoke(app, ["build", str(project)])
+    assert r2.exit_code == 0
+    assert "up to date" in r2.stdout
+
+    # Modify source
+    entry = project / "src" / "main.mv"
+    entry.write_text(entry.read_text() + "\n# touched\n")
+
+    # Third build — should rebuild
+    r3 = runner.invoke(app, ["build", str(project)])
+    assert r3.exit_code == 0
+    assert "status: built" in r3.stdout
 
 
 def test_compile_host_report_and_native_fallback(tmp_path: Path) -> None:

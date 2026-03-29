@@ -10,6 +10,7 @@ from .diagnostics import ManvError, diag
 DEFAULT_ENTRY = "src/main.mv"
 DEFAULT_TARGET_DIR = ".manv/target"
 DEFAULT_DIST_DIR = "dist"
+DEFAULT_BUILD_DIR = "build"
 DEFAULT_CONFIG_FILE = "project.toml"
 LEGACY_CONFIG_FILE = "manv.toml"
 
@@ -21,6 +22,7 @@ class ProjectContext:
     entry: Path
     target_dir: Path
     dist_dir: Path
+    build_dir: Path
     config_path: Path | None
     build_emit: list[str] = field(default_factory=list)
 
@@ -48,6 +50,7 @@ def discover_compile_target(path: str | Path | None) -> ProjectContext:
             entry=candidate,
             target_dir=root / DEFAULT_TARGET_DIR,
             dist_dir=root / DEFAULT_DIST_DIR,
+            build_dir=root / DEFAULT_BUILD_DIR,
             config_path=None,
         )
 
@@ -62,6 +65,7 @@ def discover_compile_target(path: str | Path | None) -> ProjectContext:
             entry=direct_entry,
             target_dir=candidate / DEFAULT_TARGET_DIR,
             dist_dir=candidate / DEFAULT_DIST_DIR,
+            build_dir=candidate / DEFAULT_BUILD_DIR,
             config_path=None,
         )
 
@@ -100,6 +104,7 @@ def discover_target(path: str | Path | None) -> ProjectContext:
             entry=candidate,
             target_dir=root / DEFAULT_TARGET_DIR,
             dist_dir=root / DEFAULT_DIST_DIR,
+            build_dir=root / DEFAULT_BUILD_DIR,
             config_path=None,
         )
 
@@ -120,6 +125,7 @@ def discover_target(path: str | Path | None) -> ProjectContext:
             entry=entry,
             target_dir=candidate / str(cfg.get("target_dir", DEFAULT_TARGET_DIR)),
             dist_dir=candidate / str(cfg.get("dist_dir", DEFAULT_DIST_DIR)),
+            build_dir=candidate / str(cfg.get("build_dir", DEFAULT_BUILD_DIR)),
             config_path=config_path,
             build_emit=cfg.get("build_emit", []),  # type: ignore[arg-type]
         )
@@ -133,6 +139,7 @@ def discover_target(path: str | Path | None) -> ProjectContext:
         entry=entry,
         target_dir=candidate / DEFAULT_TARGET_DIR,
         dist_dir=candidate / DEFAULT_DIST_DIR,
+        build_dir=candidate / DEFAULT_BUILD_DIR,
         config_path=None,
     )
 
@@ -179,6 +186,11 @@ def _read_project_config(path: Path) -> dict[str, object]:
         build.get("dist_dir") if isinstance(build, dict) else None,
         DEFAULT_DIST_DIR,
     )
+    build_dir = _first_non_empty(
+        tool_manv.get("build-dir") if isinstance(tool_manv, dict) else None,
+        tool_manv.get("build_dir") if isinstance(tool_manv, dict) else None,
+        DEFAULT_BUILD_DIR,
+    )
 
     build_emit: list[str] = []
     if isinstance(tool_manv, dict) and "build-emit" in tool_manv:
@@ -193,6 +205,7 @@ def _read_project_config(path: Path) -> dict[str, object]:
         "entry": str(entry),
         "target_dir": str(target_dir),
         "dist_dir": str(dist_dir),
+        "build_dir": str(build_dir),
         "build_emit": build_emit,
     }
 
@@ -236,6 +249,7 @@ def _default_gitignore_template() -> str:
     return (
         "# ManV build artifacts\n"
         ".manv/\n"
+        "build/\n"
         "dist/\n"
         "\n"
         "# Python cache / local env\n"
@@ -265,6 +279,7 @@ def _project_toml_template(
         f"authors = [{{ name = \"{_toml_string(author)}\" }}]\n\n"
         "[tool.manv]\n"
         f"entry = \"{DEFAULT_ENTRY}\"\n"
+        f"build-dir = \"{DEFAULT_BUILD_DIR}\"\n"
         f"target-dir = \"{DEFAULT_TARGET_DIR}\"\n"
         f"dist-dir = \"{DEFAULT_DIST_DIR}\"\n"
         "# build-emit = [\"hlir\", \"graph\"]  # uncomment to emit extra build artifacts\n"
